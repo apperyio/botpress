@@ -3,7 +3,7 @@ import { AuthRole, AuthRule, Bot } from 'core/misc/interfaces'
 
 export interface AdminService {
   listUsers()
-  createUser(username: string)
+  createUser(username: string, password: string)
   deleteUser(userId: any)
   resetPassword(userId: any)
 
