@@ -47,8 +47,16 @@ export class CommunityAdminService implements AdminService {
     throw new FeatureNotAvailableError(this.edition)
   }
 
-  createUser(username: string) {
-    throw new FeatureNotAvailableError(this.edition)
+  async createUser(username: string, password: string) {
+    const { hash, salt } = saltHashPassword(password)
+    const userId = await this.knex.insertAndRetrieve<number>(this.usersTable, {
+      username,
+      password: hash,
+      salt
+    })
+
+    await this.createNewTeam({userId})
+    return userId
   }
 
   deleteUser(userId: number) {
@@ -72,8 +80,14 @@ export class CommunityAdminService implements AdminService {
       .where({ id: userId })
   }
 
-  addMemberToTeam(userId: number, teamId: number, roleName: string) {
-    throw new FeatureNotAvailableError(this.edition)
+  async addMemberToTeam(userId: number, teamId: number, roleName: string) {
+    const role = await this.getRole({ team: teamId, name: roleName }, ['id'])
+
+    await this.knex.insertAndRetrieve<number>(this.membersTable, {
+      user: userId,
+      team: teamId,
+      role: role.id
+    })
   }
 
   removeMemberFromTeam(userId: any, teamId: any) {
