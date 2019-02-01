@@ -19,7 +19,7 @@ class Header extends React.Component {
   }
 
   componentDidMount() {
-    this.props.fetchAllBots()
+    //this.props.fetchAllBots()
   }
 
   render() {
@@ -59,7 +59,7 @@ const mapStateToProps = state => ({
 })
 
 const mapDispatchToProps = dispatch =>
-  bindActionCreators({ viewModeChanged, fetchBotInformation, fetchAllBots }, dispatch)
+  bindActionCreators({ viewModeChanged, fetchBotInformation }, dispatch)
 
 export default connect(
   mapStateToProps,
