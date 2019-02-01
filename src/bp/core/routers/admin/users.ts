@@ -62,25 +62,21 @@ export class UsersRouter implements CustomRouter {
             email: Joi.string()
               .email()
               .trim()
-              .required(),
-            password: Joi.string()
               .required()
           })
         )
         const email = req.body.email
-        const password = req.body.password
-        const alreadyExists = await this.authService.findUserByUsername(username, ['id'])
+        const alreadyExists = await this.authService.findUserByEmail(email, ['email'])
 
         if (alreadyExists) {
           throw new ConflictError(`User "${email}" is already taken`)
         }
 
-        const userId = await svc.createUser(username, password)
         const createdUser: CreatedUser = await this.authService.createUser({ email })
 
         return sendSuccess(res, 'User created successfully', {
-          username,
-          userId
+          email,
+          tempPassword: createdUser.password
         })
       })
     )
