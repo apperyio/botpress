@@ -84,6 +84,7 @@ declare module 'botpress/sdk' {
     skills?: Skill[]
     /** An array of available bot templates when creating a new bot */
     botTemplates?: BotTemplate[]
+    onFlowChanged?: ((bp: typeof import('botpress/sdk'), botId: string, flow: Flow) => void)
   }
 
   /**
@@ -418,11 +419,21 @@ declare module 'botpress/sdk' {
     }
 
     export interface DialogContext {
+      /** The name of the previous flow to return to when we exit a subflow */
       previousFlow?: string
+      /** The name of the previous node to return to when we exit a subflow */
       previousNode?: string
+      /** The name of the current active node */
       currentNode?: string
+      /** The name of the current active flow */
       currentFlow?: string
+      /** The instructions queue to be processed by the dialog engine */
       queue?: any
+      /**
+       * Indicate that the context has just jumped to another flow.
+       * This is used to execute the target flow catchAll transitions.
+       */
+      hasJumped?: boolean
     }
 
     export interface CurrentSession {
