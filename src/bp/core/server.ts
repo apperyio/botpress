@@ -1,5 +1,5 @@
 import bodyParser from 'body-parser'
-import { AxiosBotConfig, Logger, RouterOptions } from 'botpress/sdk'
+import { AxiosBotConfig, AxiosOptions, Logger, RouterOptions } from 'botpress/sdk'
 import LicensingService from 'common/licensing-service'
 import cors from 'cors'
 import errorHandler from 'errorhandler'
@@ -22,7 +22,8 @@ import { ShortLinksRouter } from './routers/shortlinks'
 import { GhostService } from './services'
 import ActionService from './services/action/action-service'
 import { AuthStrategies } from './services/auth-strategies'
-import AuthService from './services/auth/auth-service'
+import AuthService, { TOKEN_AUDIENCE } from './services/auth/auth-service'
+import { generateUserToken } from './services/auth/util'
 import { BotService } from './services/bot-service'
 import { CMSService } from './services/cms'
 import { ConverseService } from './services/converse'
@@ -35,6 +36,7 @@ import { WorkspaceService } from './services/workspace-service'
 import { TYPES } from './types'
 
 const BASE_API_PATH = '/api/v1'
+const SERVER_USER = 'server::modules'
 const isProd = process.env.NODE_ENV === 'production'
 
 @injectable()
@@ -107,14 +109,15 @@ export default class HTTPServer {
       notificationService,
       authService,
       ghostService,
-      workspaceService
+      workspaceService,
+      logger: this.logger
     })
   }
 
   @postConstruct()
   async initialize() {
     await this.botsRouter.initialize()
-    this.contentRouter = new ContentRouter(this.authService, this.cmsService, this.workspaceService)
+    this.contentRouter = new ContentRouter(this.logger, this.authService, this.cmsService, this.workspaceService)
     this.converseRouter = new ConverseRouter(this.logger, this.converseService, this.authService)
     this.botsRouter.router.use('/content', this.contentRouter.router)
     this.botsRouter.router.use('/converse', this.converseRouter.router)
@@ -126,18 +129,9 @@ export default class HTTPServer {
     const botpressConfig = await this.configProvider.getBotpressConfig()
     const config = botpressConfig.httpServer
 
-    this.app.use(
-      // TODO FIXME Conditionally enable this
-      bodyParser.json({
-        limit: config.bodyLimit
-      })
-    )
-
-    this.app.use(
-      bodyParser.urlencoded({
-        extended: true
-      })
-    )
+    // TODO FIXME Conditionally enable this
+    this.app.use(bodyParser.json({ limit: config.bodyLimit }))
+    this.app.use(bodyParser.urlencoded({ extended: true }))
 
     if (config.cors && config.cors.enabled) {
       this.app.use(cors(config.cors.origin ? { origin: config.cors.origin } : {}))
@@ -182,6 +176,7 @@ export default class HTTPServer {
     process.HOST = config.host
     process.PORT = await portFinder.getPortPromise({ port: config.port })
     process.EXTERNAL_URL = process.env.EXTERNAL_URL || config.externalUrl || `http://${process.HOST}:${process.PORT}`
+    process.LOCAL_URL = `http://${process.HOST}:${process.PORT}`
 
     if (process.PORT !== config.port) {
       this.logger.warn(`Configured port ${config.port} is already in use. Using next port available: ${process.PORT}`)
@@ -230,9 +225,14 @@ export default class HTTPServer {
     this.shortlinksRouter.deleteShortLink(name)
   }
 
-  async getAxiosConfigForBot(botId: string): Promise<AxiosBotConfig> {
+  async getAxiosConfigForBot(botId: string, options?: AxiosOptions): Promise<AxiosBotConfig> {
+    const basePath = options && options.localUrl ? process.LOCAL_URL : process.EXTERNAL_URL
+    const serverToken = generateUserToken(SERVER_USER, false, TOKEN_AUDIENCE)
     return {
-      baseURL: `${process.EXTERNAL_URL}/api/v1/bots/${botId}`
+      baseURL: `${basePath}/api/v1/bots/${botId}`,
+      headers: {
+        Authorization: `Bearer ${serverToken}`
+      }
     }
   }
 }

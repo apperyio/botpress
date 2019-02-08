@@ -190,6 +190,7 @@ declare module 'botpress/sdk' {
       }
 
       export interface Model {
+        cleanup: () => void
         trainToFile: (method: TrainCommand, modelPath: string, args: Partial<TrainArgs>) => Promise<void>
         loadFromFile: (modelPath: string) => Promise<void>
         predict: (str: string, nbLabels: number) => Promise<PredictResult[]>
@@ -306,6 +307,8 @@ declare module 'botpress/sdk' {
       export const SKIP_QNA_PROCESSING: symbol
       /** When this flag is active, Botpress Native NLU will not process this event */
       export const SKIP_NATIVE_NLU: symbol
+      /** When this flag is active, the Event State is persisted even if the dialog engine is skipped */
+      export const FORCE_PERSIST_STATE: symbol
     }
 
     /**
@@ -386,6 +389,8 @@ declare module 'botpress/sdk' {
       readonly state: EventState
       /** Holds NLU extraction results (when the event is natural language) */
       readonly nlu?: EventUnderstanding
+      /** The final decision that the Decision Engine took */
+      readonly decision?: Suggestion
     }
 
     export interface Suggestion {
@@ -393,8 +398,15 @@ declare module 'botpress/sdk' {
       confidence: number
       /** An array of the raw payloads to send as an answer */
       payloads: any[]
-      /** The intent of the reply given by the NLU */
-      intent?: string
+      /** The source (usually the name of the module or core component) this suggestion is coming from */
+      source: string
+      /** More specific details from the source of the suggestion, e.g. the name of the QnA */
+      sourceDetails?: string
+      /** The Decision Engine's decison about this suggestion */
+      decision: {
+        status: 'dropped' | 'elected'
+        reason: string
+      }
     }
 
     /**
@@ -437,13 +449,15 @@ declare module 'botpress/sdk' {
     }
 
     export interface CurrentSession {
-      lastMessages: MessageHistory[]
+      lastMessages: DialogTurnHistory[]
     }
 
-    export interface MessageHistory {
-      intent?: string
-      user: string
-      reply: string
+    export interface DialogTurnHistory {
+      incomingPreview: string
+      replySource: string
+      replyPreview: string
+      replyConfidence: number
+      replyDate: Date
     }
 
     /**
@@ -727,6 +741,9 @@ declare module 'botpress/sdk' {
      * @example http://localhost:3000/
      * */
     baseURL: string
+    headers: {
+      Authorization: string
+    }
   }
 
   /**
@@ -770,7 +787,7 @@ declare module 'botpress/sdk' {
      * Parse the body as JSON when possible
      * @default true
      */
-    enableJsonBodyParser: RouterCondition
+    enableJsonBodyParser?: RouterCondition
   }
 
   /**
@@ -802,6 +819,11 @@ declare module 'botpress/sdk' {
     column: string
     /** Is the sort order ascending or descending? Asc by default */
     desc?: boolean
+  }
+
+  export interface AxiosOptions {
+    /** When true, it will return the local url instead of the external url  */
+    localUrl: boolean
   }
 
   export namespace http {
@@ -841,7 +863,7 @@ declare module 'botpress/sdk' {
      * @param botId - The ID of the bot for which to get the configuration
      * @returns The configuration to use
      */
-    export function getAxiosConfigForBot(botId: string): Promise<AxiosBotConfig>
+    export function getAxiosConfigForBot(botId: string, options?: AxiosOptions): Promise<AxiosBotConfig>
   }
 
   /**

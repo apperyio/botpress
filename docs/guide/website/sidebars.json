@@ -1,6 +1,7 @@
 {
   "docs": {
     "Getting Started": ["introduction", "installation", "troubleshoot", "quickstart"],
+    "Botpress Pro": ["pro/about-pro", "pro/licensing"],
     "Build": [
       "build/overview",
       "build/debug",
@@ -16,7 +17,6 @@
     "Manage": ["manage/versions"],
     "Developers": [
       "developers/release-notes",
-      "developers/migrate-from-10",
       "developers/migrate",
       "developers/create-module",
       "developers/cluster",

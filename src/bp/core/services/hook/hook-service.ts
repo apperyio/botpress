@@ -87,6 +87,18 @@ export namespace Hooks {
       this.folder = 'before_session_timeout'
     }
   }
+
+  export class BeforeSuggestionsElection implements BaseHook {
+    folder: string
+    args: any
+    timeout: number
+
+    constructor(bp: typeof sdk, sessionId: string, event: IO.Event, suggestions: IO.Suggestion[]) {
+      this.timeout = 1000
+      this.args = { bp, event, suggestions }
+      this.folder = 'before_suggestions_election'
+    }
+  }
 }
 
 class HookScript {
@@ -109,7 +121,7 @@ export class HookService {
 
   private _listenForCacheInvalidation() {
     this.cache.events.on('invalidation', key => {
-      if (key.toLowerCase().indexOf(`${path.sep}hooks${path.sep}`) > -1) {
+      if (key.toLowerCase().indexOf(`/hooks/`) > -1) {
         // clear the cache if there's any file that has changed in the `hooks` folder
         this._scriptsCache.clear()
       }

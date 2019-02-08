@@ -16,6 +16,7 @@ gulp.task('build', gulp.series([core.build(), modules.build(), ui.build()]))
 gulp.task('build:ui', ui.build())
 gulp.task('build:core', core.build())
 gulp.task('build:modules', gulp.series([modules.build()]))
+gulp.task('build:sdk', gulp.series([modules.buildSdk()]))
 
 gulp.task('start:guide', docs.startDevServer)
 gulp.task('build:guide', docs.buildGuide)
@@ -32,6 +33,8 @@ gulp.task('watch:admin', ui.watchAdmin)
 gulp.task('clean:node', cb => rimraf('**/node_modules/**', cb))
 gulp.task('clean:out', cb => rimraf('out', cb))
 gulp.task('clean:db', cb => rimraf('out/bp/data/storage/core.sqlite', cb))
+
+gulp.task('dev:module', modules.createModuleAssetsSymlink)
 
 gulp.task('changelog', () => {
   // see options here: https://github.com/conventional-changelog/conventional-changelog/tree/master/packages
