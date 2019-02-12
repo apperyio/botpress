@@ -142,7 +142,7 @@ class Sidebar extends React.Component {
         <div className={classnames(style.sidebar, 'bp-sidebar')}>
           <div style={{ padding: '8px 13px' }}>
             <a onClick={() => window.top.location = window.location.href.replace('chatbot.', '').split('studio/')[0] + 'ai'} className={classnames(style.logo, 'bp-logo')}>
-              <img width="125" src="/assets/ui-studio/public/img/logo_white.png" alt="Botpress Logo" />
+              <img width="125" src="/assets/ui-studio/public/img/logo_white.png" alt="ChatBot Logo" />
             </a>
           </div>
           <ul className={classnames('nav', style.mainMenu)}>
