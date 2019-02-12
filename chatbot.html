@@ -1,0 +1,21 @@
+<html>
+<head>
+
+<script>
+
+ function loadStudio() {
+	const urlParams = new URLSearchParams(window.location.search);
+	const botname = urlParams.get('botname');
+	
+	var bptoken = '{"token":"token","expires":"1648413053241","time":"2029-01-25T08:44:13.241Z"}';
+ 
+	window.localStorage.setItem('bp/token', bptoken); 
+	var url = 'https://' + window.location.hostname + '/studio/' + botname + '/flows';
+	window.location = url;
+ }
+</script>
+
+</head>
+<body onload="loadStudio()">
+</body>
+</html>
