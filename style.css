@@ -9,3 +9,15 @@ footer div div:nth-child(3) {
 footer div div:nth-child(4) {
   visibility: hidden !important;
 }
+
+#main > div > div > div > div > button:nth-child(10) {
+  display: none !important;	
+}
+
+#main > div > div > div > div > div.dropdown.btn-group {
+  display: none !important;		
+}
+
+#main > div > div > div > div > div:nth-child(12) {
+  display: none !important;		
+}
