@@ -48,6 +48,35 @@ export class BotConfigWriter {
     }
   }
 
+  async createFromBot(bot: Bot, source: BotTemplate) {
+    const botSourcePath = path.join(process.PROJECT_LOCATION, `data/bots/${source.id}/`)
+    const templateConfig = path.resolve(botSourcePath, this.BOT_CONFIG_FILENAME)
+    const botDestinationPath = path.join(process.PROJECT_LOCATION, `data/bots/${bot.id}/`)
+
+    try {
+      const startsWithADot = /^\./gm
+      const templateFiles = listDir(botSourcePath, [startsWithADot])
+      const scopedGhost = this.ghost.forBot(bot.id)
+      const files = templateFiles.map(f => {
+        return {
+          name: f.relativePath,
+          content: fse.readFileSync(f.absolutePath)
+        } as FileContent
+      })
+
+      await scopedGhost.upsertFiles('/', files)
+
+      if (fse.existsSync(templateConfig)) {
+        this._writeTemplateConfig(templateConfig, bot)
+        await scopedGhost.ensureDirs('/', BOT_DIRECTORIES)
+      } else {
+        throw new Error("Bot template doesn't exist")
+      }
+    } catch (err) {
+      throw new VError(err, `Error writing file "${botDestinationPath}"`)
+    }
+  }
+
   private async _writeTemplateConfig(configFile: string, bot: Bot) {
     try {
       const templateConfig = JSON.parse(await fse.readFileSync(configFile, 'utf-8'))
