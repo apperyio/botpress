@@ -195,7 +195,7 @@ export default class Slots extends React.Component {
     return (
       <div className={style.centerContainer}>
         <div className={style.centerElement}>
-          <h1>No slot is defined for this intent 🤖</h1>
+          <h1>No slot is defined for this intent</h1>
           {this.hasSelectedText() && (
             <h3>
               Define a new slot in order to tag <span className={style.selectionText}>"{this.state.selectedText}"</span>
