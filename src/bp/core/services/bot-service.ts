@@ -103,7 +103,7 @@ export class BotService {
       throw new InvalidOperationError(`An error occurred while creating the bot: ${error.message}`)
     }
 
-    await this.configWriter.createFromTemplate(bot, botTemplate)
+    await this.configWriter.createFromBot(bot, botTemplate)
     await this.mountBot(bot.id)
     this._invalidateBotIds()
   }
