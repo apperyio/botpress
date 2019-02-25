@@ -1,0 +1,17 @@
+{
+  "utterances": [
+    "Practice [today at 11 am](practicedate) ",
+    " I will practice [tomorrow at 1 am](practicedate) ",
+    "I need to train [today at 10 pm](practicedate)",
+    "I want to practice [the day after tomorrow at 11 am](practicedate)",
+    "I would like to practice [tomorrow at 11 am](practicedate)"
+  ],
+  "slots": [
+    {
+      "id": "fEmpUJAc3mwn3TkVCNHv0",
+      "name": "practicedate",
+      "entity": "time",
+      "color": 8
+    }
+  ]
+}
