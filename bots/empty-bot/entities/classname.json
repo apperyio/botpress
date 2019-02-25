@@ -1,0 +1,36 @@
+{
+  "name": "classname",
+  "type": "list",
+  "pattern": "",
+  "occurences": [
+    {
+      "name": "Yoga",
+      "synonyms": [
+        "yoga",
+        "yoga class"
+      ]
+    },
+    {
+      "name": "Pilates",
+      "synonyms": [
+        "pilates",
+        "pilates class"
+      ]
+    },
+    {
+      "name": "Group fitness",
+      "synonyms": [
+        "group fitness",
+        "fitness group",
+        "fitness group class"
+      ]
+    },
+    {
+      "name": "Personal training",
+      "synonyms": [
+        "personal training",
+        "personal training class"
+      ]
+    }
+  ]
+}
