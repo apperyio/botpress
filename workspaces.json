@@ -1,0 +1,80 @@
+[
+  {
+    "name": "Default",
+    "userSeq": 0,
+    "users": [
+      {
+        "email": "admin.chatbot@appery.io",
+        "password": "92f7f2fc3247d928984e2197771884f4ba6f9d817f41537871384160e157519725db5be871bf6ee75ed00f03a41622e3f80e1a80964497666f757c713e4f513c",
+        "salt": "857d974fc0322170",
+        "last_ip": "::1",
+        "last_logon": "2019-02-25T14:49:21.691Z",
+        "created_on": "2019-02-25T11:30:15.325Z",
+        "role": "admin"
+      },
+      {
+        "email": "user.chatbot@appery.io",
+        "password": "92f7f2fc3247d928984e2197771884f4ba6f9d817f41537871384160e157519725db5be871bf6ee75ed00f03a41622e3f80e1a80964497666f757c713e4f513c",
+        "salt": "857d974fc0322170",
+        "last_ip": "::1",
+        "last_logon": "2019-02-25T14:49:21.691Z",
+        "created_on": "2019-02-25T11:30:15.325Z",
+        "role": "admin"
+      }
+
+	  
+    ],
+    "bots": [
+      "emptychatbot"
+    ],
+    "roles": [
+      {
+        "id": "admin",
+        "name": "Administrator",
+        "description": "Administrators have full access to the workspace including adding members, creating bots and synchronizing changes.",
+        "rules": [
+          {
+            "res": "*",
+            "op": "+r+w"
+          }
+        ]
+      },
+      {
+        "id": "dev",
+        "name": "Developer",
+        "description": "Developers have full read/write access to bots, including flows, content, NLU and actions",
+        "rules": [
+          {
+            "res": "*",
+            "op": "+r+w"
+          },
+          {
+            "res": "admin.*",
+            "op": "+r-w"
+          },
+          {
+            "res": "admin.collaborators.*",
+            "op": "-r"
+          }
+        ]
+      },
+      {
+        "id": "editor",
+        "name": "Content Editor",
+        "description": "Content Editors have read/write access to content and NLU, and read-only access to flows and actions.",
+        "rules": [
+          {
+            "res": "*",
+            "op": "+r"
+          },
+          {
+            "res": "admin.collaborators.*",
+            "op": "-r"
+          }
+        ]
+      }
+    ],
+    "defaultRole": "dev",
+    "adminRole": "admin"
+  }
+]
