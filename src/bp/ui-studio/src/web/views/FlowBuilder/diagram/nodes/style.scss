@@ -34,10 +34,10 @@
   font-weight: 600;
   padding: 3px 8px;
   color: #fff;
-  background: #000;
+  background: #68869b;
 
   &.waiting {
-    background: #f6bd4f;
+    background: #faebcc;
     color: #000;
   }
 
@@ -100,13 +100,13 @@
 }
 
 .startPort :global(.port) {
-  background-color: lime !important;
+  background-color: #4da528 !important;
   border-top-left-radius: 20px;
   border-top-right-radius: 20px;
 }
 
 .endPort :global(.port) {
-  background-color: #e62eea !important;
+  background-color: #0772db !important;
   border-top-right-radius: 20px;
   border-bottom-right-radius: 20px;
 }
