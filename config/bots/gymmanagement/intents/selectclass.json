@@ -1,0 +1,18 @@
+{
+  "utterances": [
+    "  sign up me for [yoga ](classname) ",
+    " I would like sign up for [yoga](classname) ",
+    "[yoga](classname)",
+    "I select [yoga](classname)",
+    " [yoga](classname)  please",
+    "could you sign up me for [yoga](classname) "
+  ],
+  "slots": [
+    {
+      "id": "KDr4VHON7aMPqA4Gz14TC",
+      "name": "classname",
+      "entity": "classname",
+      "color": 3
+    }
+  ]
+}
