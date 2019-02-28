@@ -1,6 +1,6 @@
 {
   "$schema": "../../bot.config.schema.json",
-  "description": "Empty bot",
+  "description": "Welcome bot",
   "active": true,
   "version": "1.0.0",
   "author": "Botpress, Inc.",
@@ -23,7 +23,6 @@
   "logs": {
     "expiration": "1 week"
   },
-  "id": "emptychatbot",
-  "name": "emptychatbot",
-  "category": null
+  "id": "welcome",
+  "name": "Welcome"
 }

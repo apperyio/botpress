@@ -1,0 +1,176 @@
+{
+  "version": "0.0.1",
+  "catchAll": {
+    "next": [
+      {
+        "condition": "event.nlu.intent.name === 'forget'",
+        "node": "forget-my-name"
+      }
+    ],
+    "onReceive": []
+  },
+  "startNode": "entry",
+  "nodes": [
+    {
+      "id": "a54a82eb7c",
+      "name": "entry",
+      "onEnter": [],
+      "onReceive": null,
+      "next": [
+        {
+          "condition": "true",
+          "node": "ask-name"
+        }
+      ]
+    },
+    {
+      "id": "3fc7086c87",
+      "name": "ask-name",
+      "next": [
+        {
+          "condition": "true",
+          "node": "practice"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-z0J9qh"
+      ],
+      "onReceive": [
+        "builtin/setVariable {\"type\":\"user\",\"name\":\"username\",\"value\":\"{{event.payload.text}}\"}",
+        "say #!builtin_text-O9jggz"
+      ]
+    },
+    {
+      "id": "a8dd265d97",
+      "name": "practice",
+      "next": [
+        {
+          "condition": "event.nlu.intent.name === \"practice\"",
+          "node": "availableclasses"
+        },
+        {
+          "condition": "true",
+          "node": "dontunderstandtime"
+        }
+      ],
+      "onEnter": [],
+      "onReceive": [
+        "builtin/setVariable {\"type\":\"user\",\"name\":\"practicetime\",\"value\":\"event.nlu.slots.practicedate.value\"}"
+      ]
+    },
+    {
+      "id": "e07ebe1cc5",
+      "name": "dontunderstandtime",
+      "next": [
+        {
+          "condition": "true",
+          "node": "practice"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-F5mjCO"
+      ],
+      "onReceive": null
+    },
+    {
+      "id": "3d63a179e0",
+      "name": "availableclasses",
+      "next": [
+        {
+          "condition": "true",
+          "node": "yourclass"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-H0RgyM"
+      ],
+      "onReceive": null
+    },
+    {
+      "id": "4c45ed6746",
+      "name": "dontunderstandclass",
+      "next": [
+        {
+          "condition": "true",
+          "node": "yourclass"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-s4U0DN"
+      ],
+      "onReceive": null
+    },
+    {
+      "id": "ad872b268b",
+      "name": "selectclass",
+      "next": [
+        {
+          "condition": "true",
+          "node": "extraquestions"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-oFc5Pv"
+      ],
+      "onReceive": []
+    },
+    {
+      "id": "9bac9794f9",
+      "name": "yourclass",
+      "next": [
+        {
+          "condition": "event.nlu.intent.name === \"selectclass\"",
+          "node": "selectclass"
+        },
+        {
+          "condition": "true",
+          "node": "dontunderstandclass"
+        }
+      ],
+      "onEnter": [],
+      "onReceive": []
+    },
+    {
+      "id": "fe6be84462",
+      "name": "extraquestions",
+      "next": [
+        {
+          "condition": "true",
+          "node": "help"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-V3BFTE"
+      ],
+      "onReceive": []
+    },
+    {
+      "id": "147485fb5a",
+      "name": "help",
+      "next": [
+        {
+          "condition": "true",
+          "node": "bue"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-NpulUj"
+      ],
+      "onReceive": []
+    },
+    {
+      "id": "88a6093d98",
+      "name": "bue",
+      "next": [
+        {
+          "condition": "true",
+          "node": "END"
+        }
+      ],
+      "onEnter": [
+        "say #!builtin_text-_2e~xu"
+      ],
+      "onReceive": null
+    }
+  ]
+}
