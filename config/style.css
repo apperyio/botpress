@@ -1,0 +1,39 @@
+footer div div:nth-child(2) {
+  visibility: hidden !important;
+}
+
+footer div div:nth-child(3) {
+  visibility: hidden !important;
+}
+
+footer div div:nth-child(4) {
+  visibility: hidden !important;
+}
+
+#main > div > div > div > div > div.dropdown.btn-group {
+  display: none !important;
+}
+
+#diagramContainer > div > div > button:nth-child(1) {
+  display: none !important;
+}
+
+#diagramContainer > div > div > button:nth-child(2) {
+  display: none !important;
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(1) {
+  display: none !important;
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(3) {
+  display: none !important;
+}
+
+#main > nav > div > div > ul:nth-child(1) > li:nth-child(1) {
+  display: none !important;
+}
+
+#main > nav > div > div > ul:nth-child(1) > li:nth-child(2) {
+  display: none !important;
+}
