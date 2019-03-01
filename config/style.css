@@ -37,3 +37,35 @@ footer div div:nth-child(4) {
 #main > nav > div > div > ul:nth-child(1) > li:nth-child(2) {
   display: none !important;
 }
+
+#app > div > div > div > aside > div {
+	width: 200px !important; 
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(4) > ul > li:nth-child(1) {
+	height: 45px !important; 
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(4) > ul > li:nth-child(2) {
+	height: 45px !important; 
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(4) > ul {
+	height: 90px !important; 
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(4) {
+	height: 135px !important; 
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(4) > ul > li:nth-child(1) > a {
+	height: 44px !important; 	
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(4) > ul > li:nth-child(2) > a {
+	height: 44px !important; 	
+}
+
+#app > div > div > div > aside > div > ul > li:nth-child(4) > ul {
+	display: block !important;  
+}
