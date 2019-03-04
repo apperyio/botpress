@@ -1,0 +1,65 @@
+{
+  "$schema": "../botpress.config.schema.json",
+  "httpServer": {
+    "host": "localhost",
+    "port": 3000,
+    "backlog": 0,
+    "bodyLimit": "100kb",
+    "cors": {
+      "enabled": true
+    }
+  },
+  "dialog": {
+    "janitorInterval": "10s",
+    "timeoutInterval": "2m",
+    "sessionTimeoutInterval": "30m"
+  },
+  "logs": {
+    "expiration": "2 weeks",
+    "janitorInterval": "30s"
+  },
+  "modules": [
+    {
+      "location": "MODULES_ROOT/analytics",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/basic-skills",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/builtin",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/channel-web",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/nlu",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/qna",
+      "enabled": true
+    }
+  ],
+  "pro": {
+    "enabled": false,
+    "licenseKey": "paste your license key here",
+    "auth": {
+      "strategy": "basic",
+      "fieldMapping": {},
+      "allowSelfSignup": false
+    }
+  },
+  "superAdmins": [
+    "admin.chatbot@appery.i"
+  ],
+  "sendUsageStats": true,
+  "dataRetention": {
+    "janitorInterval": "10m",
+    "policies": {}
+  },
+  "jwtSecret": "tj5dXfXeUIn_LB8ti9SAYChT0LyVGRhSVGn8BeY_"
+}
