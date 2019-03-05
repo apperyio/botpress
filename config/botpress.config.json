@@ -54,7 +54,7 @@
     }
   },
   "superAdmins": [
-    "admin.chatbot@appery.i"
+    "admin.chatbot@appery.io"
   ],
   "sendUsageStats": true,
   "dataRetention": {
