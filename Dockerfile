@@ -21,15 +21,29 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
   && apt-get update \
   && apt-get install -y --no-install-recommends yarn
 
-# Make port 3000 available to the world outside this container
-EXPOSE 3000
-
 # Clone Git repository
 RUN git clone https://github.com/apperyio/botpress.git
 
-RUN mkdir -p /botpress/out/bp/data/bots \
-  && cp -r /botpress/bots/emptychatbot /botpress/out/bp/data/bots/empty-bot
-
 WORKDIR /botpress
 
-CMD ["/bin/bash"]
+RUN git checkout develop
+
+# Build botpress
+RUN yarn
+RUN yarn build
+
+# Init botpress
+RUN mkdir -p /botpress/out/bp/assets/ui-studio/public/ \
+  && mkdir -p /botpress/out/bp/data/global/ \
+  && cp -r /botpress/config/bots /botpress/out/bp/data/bots \
+  && cp /botpress/config/style.css /botpress/out/bp/assets/ui-studio/public/style.css \
+  && cp /botpress/config/chatbot.html /botpress/out/bp/assets/ui-studio/public/chatbot.html \
+  && cp /botpress/config/workspaces.json /botpress/out/bp/data/global/workspaces.json \
+  && cp /botpress/config/botpress.config.json /botpress/out/bp/data/global/botpress.config.json
+
+VOLUME /botpress/out/bp/data
+
+# Make port 3000 available to the world outside this container
+EXPOSE 3000
+
+ENTRYPOINT ["/botpress/start.sh"]
