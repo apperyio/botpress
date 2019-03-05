@@ -51,7 +51,7 @@ VOLUME /botpress/out/bp/data
 # Allow to execute start script
 RUN chmod +x /botpress/start.sh
 
-# Make port 3000 available to the world outside this container
+# Make port 3000 available to the world outside this container 
 EXPOSE 3000
 
 ENTRYPOINT ["/botpress/start.sh"]
