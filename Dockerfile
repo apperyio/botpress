@@ -39,8 +39,9 @@ RUN yarn build
 
 # Init botpress
 RUN mkdir -p /botpress/out/bp/assets/ui-studio/public/ \
-  && mkdir -p /botpress/out/bp/data/global/ \
+  && mkdir -p /botpress/out/bp/data/global/actions/ \
   && cp -r /botpress/config/bots /botpress/out/bp/data/bots \
+  && cp -r /botpress/config/builtin /botpress/out/bp/data/global/actions/builtin \
   && cp /botpress/config/style.css /botpress/out/bp/assets/ui-studio/public/style.css \
   && cp /botpress/config/chatbot.html /botpress/out/bp/assets/ui-studio/public/chatbot.html \
   && cp /botpress/config/workspaces.json /botpress/out/bp/data/global/workspaces.json \
