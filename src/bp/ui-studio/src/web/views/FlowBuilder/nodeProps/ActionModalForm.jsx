@@ -24,6 +24,9 @@ export default class ActionModalForm extends Component {
 
   textToItemId = text => _.get(text.match(/^say #!(.*)$/), '[1]')
 
+  getFunctionParamsDefinition = fn => _.get(fn, 'metadata.params') || []
+  findFunctionByName = (functions, name) => functions.find(fn => fn.name === name)
+
   componentWillReceiveProps(nextProps) {
     const { item } = nextProps
 
@@ -32,12 +35,23 @@ export default class ActionModalForm extends Component {
     }
 
     if (item) {
-      this.setState({
-        actionType: nextProps.item.type,
-        functionInputValue: nextProps.item.functionName,
-        messageValue: nextProps.item.message,
-        functionParams: nextProps.item.parameters
-      })
+      this.setState(
+        {
+          actionType: item.type,
+          functionInputValue: item.functionName,
+          messageValue: item.message,
+          functionParams: item.parameters
+        },
+        () => {
+          const { avActions, functionInputValue } = this.state
+          const paramsDefinition = this.getFunctionParamsDefinition(
+            this.findFunctionByName(avActions, functionInputValue)
+          )
+          this.setState({
+            paramsDef: paramsDefinition
+          })
+        }
+      )
     } else {
       this.resetForm()
     }
@@ -103,6 +117,33 @@ export default class ActionModalForm extends Component {
 
     // const args = JSON.stringify(this.state.functionParams, null, 4)
 
+    const onAvActionsChange = val => {
+      if (!val) {
+        return
+      }
+
+      const fn = this.findFunctionByName(avActions, val.value)
+      const paramsDefinition = this.getFunctionParamsDefinition(fn)
+
+      this.setState({
+        functionInputValue: val.value,
+        paramsDef: paramsDefinition,
+        actionMetadata: fn.metadata || {}
+      })
+
+      // TODO Detect if default or custom arguments
+      if (
+        Object.keys(this.state.functionParams || {}).length > 0 &&
+        !confirm('Do you want to overwrite existing parameters?')
+      ) {
+        return
+      }
+
+      this.setState({
+        functionParams: _.fromPairs(paramsDefinition.map(param => [param.name, param.default || '']))
+      })
+    }
+
     return (
       <div>
         <h5>Action to run {help}</h5>
@@ -110,27 +151,7 @@ export default class ActionModalForm extends Component {
           <SelectActionDropdown
             value={this.state.functionInputValue}
             options={avActions}
-            onChange={val => {
-              const fn = avActions.find(fn => fn.name === (val && val.value))
-              const paramsDefinition = _.get(fn, 'metadata.params') || []
-              this.setState({
-                functionInputValue: val && val.value,
-                paramsDef: paramsDefinition,
-                actionMetadata: fn.metadata || {}
-              })
-
-              // TODO Detect if default or custom arguments
-              if (
-                Object.keys(this.state.functionParams || {}).length > 0 &&
-                !confirm('Do you want to overwrite existing parameters?')
-              ) {
-                return
-              }
-
-              this.setState({
-                functionParams: _.fromPairs(paramsDefinition.map(param => [param.name, param.default || '']))
-              })
-            }}
+            onChange={onAvActionsChange}
           />
           {this.state.actionMetadata.title && <h4>{this.state.actionMetadata.title}</h4>}
           {this.state.actionMetadata.description && <Markdown source={this.state.actionMetadata.description} />}

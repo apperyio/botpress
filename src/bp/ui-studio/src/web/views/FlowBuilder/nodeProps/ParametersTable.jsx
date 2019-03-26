@@ -32,104 +32,124 @@ export default class ParametersTable extends Component {
     })
   }
 
-  render() {
-    const renderRow = id => {
-      const args = this.state.arguments
+  renderInputByType(type, placeholder, value, onChange) {
+    switch (type) {
+      case 'string':
+        return <input type="text" placeholder={placeholder} value={value} onChange={onChange} />
 
-      const regenerateEmptyRowIfNeeded = () => {
-        if (args[id].key === '' && args[id].value === '') {
-          args[new Date().getTime()] = { key: '', value: '' }
-        }
-      }
+      case 'code':
+        return (
+          <textarea
+            placeholder={placeholder}
+            value={value}
+            onChange={onChange}
+            style={{ resize: 'vertical', width: '100%' }}
+          />
+        )
 
-      const deleteDuplicatedEmptyRows = () => {
-        let count = 0
-        for (const id in this.state.arguments) {
-          const v = this.state.arguments[id]
-          if (v.key === '' && v.value === '') {
-            count++
-          }
-          if (count > 1) {
-            const clone = { ...this.state.arguments }
-            delete clone[id]
-            return this.setState({
-              arguments: clone
-            })
-          }
-        }
-      }
-
-      const editKey = evt => {
-        if (evt.target.value !== '') {
-          regenerateEmptyRowIfNeeded()
-        } else {
-          if (this.state.arguments[id].value === '') {
-            setTimeout(deleteDuplicatedEmptyRows, 100)
-          }
-        }
-
-        this.setState({
-          arguments: { ...args, [id]: { key: evt.target.value, value: args[id].value } }
-        })
-
-        this.onChanged()
-      }
-
-      const editValue = evt => {
-        if (evt.target.value !== '') {
-          regenerateEmptyRowIfNeeded()
-        } else {
-          if (this.state.arguments[id].key === '') {
-            setTimeout(deleteDuplicatedEmptyRows, 100)
-          }
-        }
-
-        this.setState({
-          arguments: { ...args, [id]: { value: evt.target.value, key: args[id].key } }
-        })
-
-        this.onChanged()
-      }
-
-      const isKeyValid = args[id].key.length > 0 || !args[id].value.length
-
-      const paramName = args[id].key
-      const paramValue = args[id].value
-
-      const definition = _.find(this.props.definitions || [], { name: paramName }) || {
-        required: false,
-        description: 'No description',
-        default: '',
-        type: 'Unknown',
-        fake: true
-      }
-
-      const tooltip = (
-        <Tooltip id={`param-${paramName}`}>
-          <strong>({definition.type}) </strong> {definition.description}
-        </Tooltip>
-      )
-
-      const help = definition.fake ? null : (
-        <OverlayTrigger placement="bottom" overlay={tooltip}>
-          <i className={'material-icons ' + style.keyTip}>help_outline</i>
-        </OverlayTrigger>
-      )
-
-      const keyClass = classnames({ [style.invalid]: !isKeyValid, [style.mandatory]: definition.required })
-
-      return (
-        <tr key={id}>
-          <td className={keyClass}>
-            {help}
-            <input type="text" disabled={!!definition.required} value={paramName} onChange={editKey} />
-          </td>
-          <td>
-            <input type="text" placeholder={definition.default} value={paramValue} onChange={editValue} />
-          </td>
-        </tr>
-      )
+      default:
+        return <input type="text" placeholder={placeholder} value={value} onChange={onChange} />
     }
+  }
+
+  renderRow(id) {
+    const args = this.state.arguments
+
+    const regenerateEmptyRowIfNeeded = () => {
+      if (args[id].key === '' && args[id].value === '') {
+        args[new Date().getTime()] = { key: '', value: '' }
+      }
+    }
+
+    const deleteDuplicatedEmptyRows = () => {
+      let count = 0
+      for (const id in this.state.arguments) {
+        const v = this.state.arguments[id]
+        if (v.key === '' && v.value === '') {
+          count++
+        }
+        if (count > 1) {
+          const clone = { ...this.state.arguments }
+          delete clone[id]
+          return this.setState({
+            arguments: clone
+          })
+        }
+      }
+    }
+
+    const editKey = evt => {
+      if (evt.target.value !== '') {
+        regenerateEmptyRowIfNeeded()
+      } else {
+        if (this.state.arguments[id].value === '') {
+          setTimeout(deleteDuplicatedEmptyRows, 100)
+        }
+      }
+
+      this.setState({
+        arguments: { ...args, [id]: { key: evt.target.value, value: args[id].value } }
+      })
+
+      this.onChanged()
+    }
+
+    const editValue = evt => {
+      if (evt.target.value !== '') {
+        regenerateEmptyRowIfNeeded()
+      } else {
+        if (this.state.arguments[id].key === '') {
+          setTimeout(deleteDuplicatedEmptyRows, 100)
+        }
+      }
+
+      this.setState({
+        arguments: { ...args, [id]: { value: evt.target.value, key: args[id].key } }
+      })
+
+      this.onChanged()
+    }
+
+    const isKeyValid = args[id].key.length > 0 || !args[id].value.length
+
+    const paramName = args[id].key
+    const paramValue = args[id].value
+
+    const definition = _.find(this.props.definitions || [], { name: paramName }) || {
+      required: false,
+      description: 'No description',
+      default: '',
+      type: 'Unknown',
+      fake: true
+    }
+
+    const tooltip = (
+      <Tooltip id={`param-${paramName}`}>
+        <strong>({definition.type}) </strong> {definition.description}
+      </Tooltip>
+    )
+
+    const help = definition.fake ? null : (
+      <OverlayTrigger placement="bottom" overlay={tooltip}>
+        <i className={'material-icons ' + style.keyTip}>help_outline</i>
+      </OverlayTrigger>
+    )
+
+    const keyClass = classnames({ [style.invalid]: !isKeyValid, [style.mandatory]: definition.required })
+
+    return (
+      <tr key={id}>
+        <td className={keyClass}>
+          {help}
+          <input type="text" disabled={!!definition.required} value={paramName} onChange={editKey} />
+        </td>
+        <td>{this.renderInputByType(definition.type, definition.default, paramValue, editValue)}</td>
+      </tr>
+    )
+  }
+
+  render() {
+    const rows = _.orderBy(_.keys(this.state.arguments), x => x).map(this.renderRow.bind(this))
 
     return (
       <Table className={classnames(style.table, this.props.className)}>
@@ -139,7 +159,7 @@ export default class ParametersTable extends Component {
             <th>Value</th>
           </tr>
         </thead>
-        <tbody>{_.orderBy(_.keys(this.state.arguments), x => x).map(renderRow)}</tbody>
+        <tbody>{rows}</tbody>
       </Table>
     )
   }

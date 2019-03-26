@@ -161,6 +161,7 @@ export class ScopedActionService {
       }
     )
 
+    // TODO: Whould be useful to configure these things from custom config
     const vm = new NodeVM({
       wrapper: 'none',
       sandbox: {
@@ -177,7 +178,10 @@ export class ScopedActionService {
         external: true,
         mock: modRequire
       },
-      timeout: 5000
+      timeout: 5000,
+      // Necessary to run nested vm2
+      nesting: true,
+      console: 'inherit'
     })
 
     const runner = new VmRunner()
