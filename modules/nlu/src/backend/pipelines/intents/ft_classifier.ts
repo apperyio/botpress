@@ -4,7 +4,12 @@ import _ from 'lodash'
 import tmp from 'tmp'
 import { VError } from 'verror'
 
+import { FastTextOverrides } from '../../../config'
 import { IntentClassifier, IntentModel } from '../../typings'
+
+const debug = DEBUG('nlu').sub('intents')
+const debugTrain = debug.sub('train')
+const debugPredict = debug.sub('predict')
 
 interface TrainSet {
   name: string
@@ -14,10 +19,32 @@ interface TrainSet {
 export default class FastTextClassifier implements IntentClassifier {
   private _modelsByContext: { [key: string]: sdk.MLToolkit.FastText.Model } = {}
 
-  constructor(private toolkit: typeof sdk.MLToolkit, private readonly logger: sdk.Logger) {}
+  public prebuiltWordVecPath: string | undefined
+
+  constructor(
+    private toolkit: typeof sdk.MLToolkit,
+    private readonly logger: sdk.Logger,
+    private readonly ftOverrides: FastTextOverrides
+  ) {}
+
+  private getFastTextParams(): Partial<sdk.MLToolkit.FastText.TrainArgs> {
+    const extraArgs: Partial<sdk.MLToolkit.FastText.TrainArgs> = this.prebuiltWordVecPath
+      ? { pretrainedVectors: this.prebuiltWordVecPath }
+      : {}
+
+    return {
+      ...extraArgs,
+      lr: _.get(this.ftOverrides, 'learningRate', 0.8),
+      epoch: _.get(this.ftOverrides, 'epoch', 5),
+      wordNgrams: _.get(this.ftOverrides, 'wordNgrams', 3)
+    }
+  }
 
   private sanitizeText(text: string): string {
-    return text.toLowerCase().replace(/[^\w\s]|\r|\f/gi, '')
+    return text
+      .toLowerCase()
+      .replace(/\t|\r|\f/gi, ' ')
+      .replace(/\s\s+/gi, ' ')
   }
 
   private _writeTrainingSet(intents: TrainSet[], trainingFilePath: string) {
@@ -55,18 +82,15 @@ export default class FastTextClassifier implements IntentClassifier {
 
     // TODO Apply parameters from Grid-search here
     const ft = new this.toolkit.FastText.Model()
-    await ft.trainToFile('supervised', modelFn, {
-      input: dataFn,
-      loss: 'hs',
-      dim: 15,
-      wordNgrams: 3,
-      minCount: 1,
-      minn: 3,
-      maxn: 6,
-      bucket: 25000,
-      epoch: 50,
-      lr: 0.8
-    })
+
+    const params = {
+      ...this.getFastTextParams(),
+      input: dataFn
+    }
+
+    debugTrain('training fastText model', { modelName, fastTextParams: params })
+    await ft.trainToFile('supervised', modelFn, params)
+    debugTrain('done with fastText model')
 
     return { ft, data: readFileSync(modelFn) }
   }
@@ -77,11 +101,14 @@ export default class FastTextClassifier implements IntentClassifier {
     const models: IntentModel[] = []
     const modelsByContext: { [key: string]: sdk.MLToolkit.FastText.Model } = {}
 
+    debugTrain('contexts', contextNames)
+
     for (const context of contextNames) {
       // TODO Make the `none` intent undeletable, mandatory and pre-filled with random data
       const intentSet = intents.filter(x => x.contexts.includes(context) || x.name === 'none')
 
       if (this._hasSufficientData(intentSet)) {
+        debugTrain('training context', context)
         try {
           const { ft, data } = await this._trainForOneModel(intentSet, context)
           modelsByContext[context] = ft
@@ -89,6 +116,8 @@ export default class FastTextClassifier implements IntentClassifier {
         } catch (err) {
           throw new VError(err, `Error training set of intents for context "${context}"`)
         }
+      } else {
+        debugTrain('insufficent data, skip training context', context)
       }
     }
 
@@ -138,16 +167,23 @@ export default class FastTextClassifier implements IntentClassifier {
     }
   }
 
-  public async predict(input: string): Promise<sdk.NLU.Intent[]> {
+  public async predict(input: string, includedContexts: string[] = []): Promise<sdk.NLU.Intent[]> {
     if (!Object.keys(this._modelsByContext).length) {
       throw new Error('No model loaded. Make sure you `load` your models before you call `predict`.')
     }
 
     const sanitized = this.sanitizeText(input)
-    const modelNames = Object.keys(this._modelsByContext)
+
+    // TODO change this context discriminatin by a weighted scoring instead
+    // Add weights and affect the confidence results accordingly
+    // ** no scoring algorithm has been choosen, impl is yet to be done
+    const modelNames = Object.keys(this._modelsByContext).filter(
+      ctx => !includedContexts.length || includedContexts.includes(ctx)
+    )
     try {
-      // TODO Add model discrimination logic here
+      debugPredict('prediction request %o', { includedContexts, input, sanitized })
       const predictions = await Promise.map(modelNames, modelName => this._predictForOneModel(sanitized, modelName))
+      debugPredict('predictions done %o', { includedContexts, input, sanitized, predictions })
 
       return _.chain(predictions)
         .flatten()

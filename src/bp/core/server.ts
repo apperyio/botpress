@@ -1,28 +1,39 @@
 import bodyParser from 'body-parser'
-import { AxiosBotConfig, AxiosOptions, Logger, RouterOptions } from 'botpress/sdk'
+import { AxiosBotConfig, AxiosOptions, http, Logger, RouterOptions } from 'botpress/sdk'
 import LicensingService from 'common/licensing-service'
+import session from 'cookie-session'
 import cors from 'cors'
 import errorHandler from 'errorhandler'
 import { UnlicensedError } from 'errors'
 import express from 'express'
+import { Request } from 'express-serve-static-core'
 import rewrite from 'express-urlrewrite'
 import { createServer, Server } from 'http'
 import { inject, injectable, postConstruct, tagged } from 'inversify'
+import jsonwebtoken from 'jsonwebtoken'
+import _ from 'lodash'
+import { Memoize } from 'lodash-decorators'
+import ms from 'ms'
 import path from 'path'
 import portFinder from 'portfinder'
 
+import { ExternalAuthConfig } from './config/botpress.config'
 import { ConfigProvider } from './config/config-loader'
+import { RequestWithUser } from './misc/interfaces'
 import { ModuleLoader } from './module-loader'
-import { BotRepository } from './repositories'
 import { AdminRouter, AuthRouter, BotsRouter, ModulesRouter } from './routers'
 import { ContentRouter } from './routers/bots/content'
 import { ConverseRouter } from './routers/bots/converse'
-import { PaymentRequiredError } from './routers/errors'
+import { isDisabled } from './routers/conditionalMiddleware'
+import { InvalidExternalToken, PaymentRequiredError } from './routers/errors'
 import { ShortLinksRouter } from './routers/shortlinks'
+import { monitoringMiddleware } from './routers/util'
 import { GhostService } from './services'
 import ActionService from './services/action/action-service'
+import { AlertingService } from './services/alerting-service'
 import { AuthStrategies } from './services/auth-strategies'
-import AuthService from './services/auth/auth-service'
+import AuthService, { TOKEN_AUDIENCE } from './services/auth/auth-service'
+import { generateUserToken } from './services/auth/util'
 import { BotService } from './services/bot-service'
 import { CMSService } from './services/cms'
 import { ConverseService } from './services/converse'
@@ -30,12 +41,27 @@ import { FlowService } from './services/dialog/flow/service'
 import { SkillService } from './services/dialog/skill/service'
 import { LogsService } from './services/logs/service'
 import MediaService from './services/media'
+import { MonitoringService } from './services/monitoring'
 import { NotificationsService } from './services/notification/service'
 import { WorkspaceService } from './services/workspace-service'
 import { TYPES } from './types'
 
 const BASE_API_PATH = '/api/v1'
+const SERVER_USER = 'server::modules'
 const isProd = process.env.NODE_ENV === 'production'
+
+const debug = DEBUG('api')
+const debugRequest = debug.sub('request')
+
+const debugRequestMw = (req: Request, _res, next) => {
+  debugRequest(`${req.path} %o`, {
+    method: req.method,
+    ip: req.ip,
+    originalUrl: req.originalUrl
+  })
+
+  next()
+}
 
 @injectable()
 export default class HTTPServer {
@@ -55,7 +81,6 @@ export default class HTTPServer {
     @inject(TYPES.Logger)
     @tagged('name', 'HTTP')
     private logger: Logger,
-    @inject(TYPES.BotRepository) botRepository: BotRepository,
     @inject(TYPES.CMSService) private cmsService: CMSService,
     @inject(TYPES.FlowService) flowService: FlowService,
     @inject(TYPES.ActionService) actionService: ActionService,
@@ -70,7 +95,9 @@ export default class HTTPServer {
     @inject(TYPES.ConverseService) private converseService: ConverseService,
     @inject(TYPES.WorkspaceService) private workspaceService: WorkspaceService,
     @inject(TYPES.BotService) private botService: BotService,
-    @inject(TYPES.AuthStrategies) private authStrategies: AuthStrategies
+    @inject(TYPES.AuthStrategies) private authStrategies: AuthStrategies,
+    @inject(TYPES.MonitoringService) private monitoringService: MonitoringService,
+    @inject(TYPES.AlertingService) private alertingService: AlertingService
   ) {
     this.app = express()
 
@@ -78,9 +105,15 @@ export default class HTTPServer {
       this.app.use(errorHandler())
     }
 
+    if (process.core_env.REVERSE_PROXY) {
+      this.app.set('trust proxy', process.core_env.REVERSE_PROXY)
+    }
+
     this.httpServer = createServer(this.app)
 
-    this.modulesRouter = new ModulesRouter(this.logger, moduleLoader, skillService)
+    this.app.use(debugRequestMw)
+
+    this.modulesRouter = new ModulesRouter(this.logger, this.authService, moduleLoader, skillService)
     this.authRouter = new AuthRouter(
       this.logger,
       this.authService,
@@ -94,12 +127,15 @@ export default class HTTPServer {
       this.workspaceService,
       this.botService,
       licenseService,
-      this.ghostService
+      this.ghostService,
+      this.configProvider,
+      this.monitoringService,
+      this.alertingService
     )
     this.shortlinksRouter = new ShortLinksRouter(this.logger)
     this.botsRouter = new BotsRouter({
       actionService,
-      botRepository,
+      botService,
       configProvider,
       flowService,
       mediaService,
@@ -116,7 +152,7 @@ export default class HTTPServer {
   async initialize() {
     await this.botsRouter.initialize()
     this.contentRouter = new ContentRouter(this.logger, this.authService, this.cmsService, this.workspaceService)
-    this.converseRouter = new ConverseRouter(this.logger, this.converseService, this.authService)
+    this.converseRouter = new ConverseRouter(this.logger, this.converseService, this.authService, this)
     this.botsRouter.router.use('/content', this.contentRouter.router)
     this.botsRouter.router.use('/converse', this.converseRouter.router)
   }
@@ -127,22 +163,38 @@ export default class HTTPServer {
     const botpressConfig = await this.configProvider.getBotpressConfig()
     const config = botpressConfig.httpServer
 
-    this.app.use(
-      // TODO FIXME Conditionally enable this
-      bodyParser.json({
-        limit: config.bodyLimit
-      })
-    )
+    this.app.use(monitoringMiddleware)
 
-    this.app.use(
-      bodyParser.urlencoded({
-        extended: true
-      })
-    )
+    if (config.session && config.session.enabled) {
+      this.app.use(
+        session({
+          secret: process.APP_SECRET,
+          secure: true,
+          httpOnly: true,
+          domain: config.externalUrl,
+          maxAge: ms(config.session.maxAge)
+        })
+      )
+    }
+
+    this.app.use((req, res, next) => {
+      if (!isDisabled('bodyParser', req)) {
+        bodyParser.json({ limit: config.bodyLimit })(req, res, next)
+      } else {
+        next()
+      }
+    })
+
+    // this.app.use(bodyParser.json({ limit: config.bodyLimit }))
+    this.app.use(bodyParser.urlencoded({ extended: true }))
 
     if (config.cors && config.cors.enabled) {
       this.app.use(cors(config.cors.origin ? { origin: config.cors.origin } : {}))
     }
+
+    this.app.get('/status', async (req, res, next) => {
+      res.send(await this.monitoringService.getStatus())
+    })
 
     this.app.use('/assets', express.static(this.resolveAsset('')))
     this.app.use(rewrite('/:app/:botId/*env.js', '/api/v1/bots/:botId/:app/js/env.js'))
@@ -220,7 +272,7 @@ export default class HTTPServer {
     app.get('/', (req, res) => res.redirect('/admin'))
   }
 
-  createRouterForBot(router: string, options: RouterOptions) {
+  createRouterForBot(router: string, options: RouterOptions): any & http.RouterExtension {
     return this.botsRouter.getNewRouter(router, options)
   }
 
@@ -234,8 +286,73 @@ export default class HTTPServer {
 
   async getAxiosConfigForBot(botId: string, options?: AxiosOptions): Promise<AxiosBotConfig> {
     const basePath = options && options.localUrl ? process.LOCAL_URL : process.EXTERNAL_URL
+    const serverToken = generateUserToken(SERVER_USER, false, '5m', TOKEN_AUDIENCE)
     return {
-      baseURL: `${basePath}/api/v1/bots/${botId}`
+      baseURL: `${basePath}/api/v1/bots/${botId}`,
+      headers: {
+        Authorization: `Bearer ${serverToken}`
+      }
     }
+  }
+
+  extractExternalToken = async (req, res, next) => {
+    if (req.headers['x-bp-externalauth']) {
+      try {
+        req.credentials = await this.decodeExternalToken(req.headers['x-bp-externalauth'])
+      } catch (error) {
+        return next(new InvalidExternalToken(error.message))
+      }
+    }
+
+    next()
+  }
+
+  async decodeExternalToken(externalToken): Promise<any | undefined> {
+    const externalAuth = await this._getExternalAuthConfig()
+
+    if (!externalAuth || !externalAuth.enabled) {
+      return undefined
+    }
+
+    const { publicKey, audience, algorithms, issuer } = externalAuth
+
+    const [scheme, token] = externalToken.split(' ')
+    if (scheme.toLowerCase() !== 'bearer') {
+      return new Error(`Unknown scheme "${scheme}"`)
+    }
+
+    return Promise.fromCallback(cb => {
+      jsonwebtoken.verify(token, publicKey, { issuer, audience, algorithms }, (err, user) => {
+        cb(err, !err ? user : undefined)
+      })
+    })
+  }
+
+  @Memoize
+  private async _getExternalAuthConfig(): Promise<ExternalAuthConfig | undefined> {
+    const botpressConfig = await this.configProvider.getBotpressConfig()
+    const config = botpressConfig.pro.externalAuth
+
+    if (!config) {
+      return
+    }
+
+    if (config.enabled) {
+      if (!config.publicKey) {
+        try {
+          config.publicKey = await this.ghostService.global().readFileAsString('/', 'end_users_auth.pub')
+        } catch (error) {
+          this.logger
+            .attachError(error)
+            .error(`External User Auth: Couldn't open public key file /data/global/end_users_auth.pub`)
+          return undefined
+        }
+      } else if (config.publicKey.length < 256) {
+        this.logger.error(`External User Auth: The provided publicKey is invalid (too short)`)
+        return undefined
+      }
+    }
+
+    return config
   }
 }

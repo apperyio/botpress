@@ -5,20 +5,22 @@ import fse from 'fs-extra'
 import { inject, injectable, tagged } from 'inversify'
 import { AppLifecycle, AppLifecycleEvents } from 'lifecycle'
 import _ from 'lodash'
-import { Memoize } from 'lodash-decorators'
 import moment from 'moment'
 import nanoid from 'nanoid'
 import path from 'path'
 import plur from 'plur'
 
+import { setDebugScopes } from '../debug'
+
 import { createForGlobalHooks } from './api'
 import { BotpressConfig } from './config/botpress.config'
 import { ConfigProvider } from './config/config-loader'
 import Database, { DatabaseType } from './database'
-import { LoggerPersister, LoggerProvider } from './logger'
+import { LoggerDbPersister, LoggerFilePersister, LoggerProvider } from './logger'
 import { ModuleLoader } from './module-loader'
 import HTTPServer from './server'
 import { GhostService } from './services'
+import { AlertingService } from './services/alerting-service'
 import { BotService } from './services/bot-service'
 import { CMSService } from './services/cms'
 import { converseApiEvents } from './services/converse'
@@ -31,6 +33,7 @@ import { Hooks, HookService } from './services/hook/hook-service'
 import { LogsJanitor } from './services/logs/janitor'
 import { EventEngine } from './services/middleware/event-engine'
 import { StateManager } from './services/middleware/state-manager'
+import { MonitoringService } from './services/monitoring'
 import { NotificationsService } from './services/notification/service'
 import RealtimeService from './services/realtime'
 import { DataRetentionJanitor } from './services/retention/janitor'
@@ -71,14 +74,16 @@ export class Botpress {
     @inject(TYPES.LoggerProvider) private loggerProvider: LoggerProvider,
     @inject(TYPES.DialogJanitorRunner) private dialogJanitor: DialogJanitor,
     @inject(TYPES.LogJanitorRunner) private logJanitor: LogsJanitor,
-    @inject(TYPES.LoggerPersister) private loggerPersister: LoggerPersister,
+    @inject(TYPES.LoggerDbPersister) private loggerDbPersister: LoggerDbPersister,
+    @inject(TYPES.LoggerFilePersister) private loggerFilePersister: LoggerFilePersister,
     @inject(TYPES.NotificationsService) private notificationService: NotificationsService,
-    @inject(TYPES.AppLifecycle) private lifecycle: AppLifecycle,
     @inject(TYPES.StateManager) private stateManager: StateManager,
     @inject(TYPES.DataRetentionJanitor) private dataRetentionJanitor: DataRetentionJanitor,
     @inject(TYPES.DataRetentionService) private dataRetentionService: DataRetentionService,
     @inject(TYPES.WorkspaceService) private workspaceService: WorkspaceService,
-    @inject(TYPES.BotService) private botService: BotService
+    @inject(TYPES.BotService) private botService: BotService,
+    @inject(TYPES.MonitoringService) private monitoringService: MonitoringService,
+    @inject(TYPES.AlertingService) private alertingService: AlertingService
   ) {
     this.version = '12.0.1'
     this.botpressPath = path.join(process.cwd(), 'dist')
@@ -95,6 +100,8 @@ export class Botpress {
   private async initialize(options: StartOptions) {
     this.trackStart()
 
+    setDebugScopes(process.core_env.DEBUG || (process.IS_PRODUCTION ? '' : 'bp:dialog'))
+
     this.config = await this.loadConfiguration()
     await this.createDatabase()
     await this.initializeGhost()
@@ -102,7 +109,7 @@ export class Botpress {
     // Invalidating the configuration to force it to load it from the ghost if enabled
     this.config = await this.loadConfiguration(true)
 
-    await this.lifecycle.setDone(AppLifecycleEvents.CONFIGURATION_LOADED)
+    await AppLifecycle.setDone(AppLifecycleEvents.CONFIGURATION_LOADED)
 
     await this.checkJwtSecret()
     await this.checkEditionRequirements()
@@ -118,18 +125,20 @@ export class Botpress {
   }
 
   async checkJwtSecret() {
-    let jwtSecret = this.config!.jwtSecret
-    if (!jwtSecret) {
-      jwtSecret = nanoid(40)
-      this.configProvider.mergeBotpressConfig({ jwtSecret })
-      this.logger.warn(`JWT Secret isn't defined. Generating a random key...`)
+    // @deprecated : .jwtSecret has been renamed for appSecret. botpress > 11 jwtSecret will not be supported
+    // @ts-ignore
+    let appSecret = this.config.appSecret || this.config.jwtSecret
+    if (!appSecret) {
+      appSecret = nanoid(40)
+      this.configProvider.mergeBotpressConfig({ appSecret })
+      this.logger.debug(`JWT Secret isn't defined. Generating a random key...`)
     }
 
-    process.JWT_SECRET = jwtSecret
+    process.APP_SECRET = appSecret
   }
 
   async checkEditionRequirements() {
-    const postgres = process.env.DATABASE && process.env.DATABASE.toLowerCase() === 'postgres'
+    const databaseType = this.getDatabaseType()
 
     if (!process.IS_PRO_ENABLED && process.CLUSTER_ENABLED) {
       this.logger.warn(
@@ -141,7 +150,7 @@ export class Botpress {
         'Botpress can be run on a cluster. If you want to do so, make sure Redis is running and properly configured in your environment variables'
       )
     }
-    if (process.IS_PRO_ENABLED && !postgres && process.CLUSTER_ENABLED) {
+    if (process.IS_PRO_ENABLED && databaseType !== 'postgres' && process.CLUSTER_ENABLED) {
       throw new Error(
         'Postgres is required to use Botpress in a cluster. Please migrate your database to Postgres and enable it in your Botpress configuration file.'
       )
@@ -175,6 +184,7 @@ export class Botpress {
     const botsRef = await this.workspaceService.getBotRefs()
     const botsIds = await this.botService.getBotsIds()
     const unlinked = _.difference(botsIds, botsRef)
+    const deleted = _.difference(botsRef, botsIds)
 
     if (unlinked.length) {
       this.logger.warn(
@@ -182,7 +192,18 @@ export class Botpress {
       )
     }
 
-    await Promise.map(botsRef, botId => this.botService.mountBot(botId))
+    if (deleted.length) {
+      this.logger.warn(
+        `Some bots have been deleted from the disk but are still referenced in your workspaces.json file.
+ Please delete them from workspaces.json to get rid of this warning. [${deleted.join(', ')}]`
+      )
+    }
+
+    const bots = await this.botService.getBots()
+    const disabledBots = [...bots.values()].filter(b => b.disabled).map(b => b.id)
+    const botsToMount = _.without(botsRef, ...disabledBots, ...deleted)
+
+    await Promise.map(botsToMount, botId => this.botService.mountBot(botId))
   }
 
   @WrapErrorsWith('Error initializing Ghost Service')
@@ -192,21 +213,32 @@ export class Botpress {
   }
 
   private async initializeServices() {
-    await this.loggerPersister.initialize(this.database, await this.loggerProvider('LogPersister'))
-    this.loggerPersister.start()
+    await this.loggerDbPersister.initialize(this.database, await this.loggerProvider('LogDbPersister'))
+    this.loggerDbPersister.start()
+
+    await this.loggerFilePersister.initialize(this.config!, await this.loggerProvider('LogFilePersister'))
 
     await this.workspaceService.initialize()
     await this.cmsService.initialize()
 
     this.eventEngine.onBeforeIncomingMiddleware = async (event: sdk.IO.IncomingEvent) => {
+      await this.stateManager.restore(event)
       await this.hookService.executeHook(new Hooks.BeforeIncomingMiddleware(this.api, event))
     }
 
     this.eventEngine.onAfterIncomingMiddleware = async (event: sdk.IO.IncomingEvent) => {
+      if (event.isPause) {
+        return
+      }
+
       await this.hookService.executeHook(new Hooks.AfterIncomingMiddleware(this.api, event))
       const sessionId = SessionIdFactory.createIdFromEvent(event)
       await this.decisionEngine.processEvent(sessionId, event)
       await converseApiEvents.emitAsync(`done.${event.target}`, event)
+    }
+
+    this.eventEngine.onBeforeOutgoingMiddleware = async (event: sdk.IO.IncomingEvent) => {
+      await this.hookService.executeHook(new Hooks.BeforeOutgoingMiddleware(this.api, event))
     }
 
     this.decisionEngine.onBeforeSuggestionsElection = async (
@@ -218,12 +250,14 @@ export class Botpress {
     }
 
     this.dataRetentionService.initialize()
-    this.stateManager.initialize()
 
     const dialogEngineLogger = await this.loggerProvider('DialogEngine')
     this.dialogEngine.onProcessingError = err => {
       const message = this.formatProcessingError(err)
-      dialogEngineLogger.forBot(err.botId).warn(message)
+      dialogEngineLogger
+        .forBot(err.botId)
+        .attachError(err)
+        .warn(message)
     }
 
     this.notificationService.onNotification = notification => {
@@ -236,12 +270,14 @@ export class Botpress {
 
     await this.logJanitor.start()
     await this.dialogJanitor.start()
+    await this.monitoringService.start()
+    await this.alertingService.start()
 
     if (this.config!.dataRetention) {
       await this.dataRetentionJanitor.start()
     }
 
-    await this.lifecycle.setDone(AppLifecycleEvents.SERVICES_READY)
+    await AppLifecycle.setDone(AppLifecycleEvents.SERVICES_READY)
   }
 
   private async loadConfiguration(forceInvalidate?): Promise<BotpressConfig> {
@@ -251,12 +287,17 @@ export class Botpress {
     return this.configProvider.getBotpressConfig()
   }
 
+  private getDatabaseType(): DatabaseType {
+    const databaseUrl = process.env.DATABASE_URL
+    const databaseType = databaseUrl && databaseUrl.toLowerCase().startsWith('postgres') ? 'postgres' : 'sqlite'
+
+    return databaseType
+  }
+
   @WrapErrorsWith(`Error initializing Database. Please check your configuration`)
   private async createDatabase(): Promise<void> {
-    const databaseType = process.env.DATABASE || 'sqlite'
-    const databaseUrl = process.env.DATABASE_URL
-
-    await this.database.initialize(<DatabaseType>databaseType.toLowerCase(), databaseUrl)
+    const databaseType = this.getDatabaseType()
+    await this.database.initialize(<DatabaseType>databaseType.toLowerCase(), process.env.DATABASE_URL)
   }
 
   private async loadModules(modules: sdk.ModuleEntryPoint[]): Promise<void> {
@@ -266,7 +307,7 @@ export class Botpress {
 
   private async startServer() {
     await this.httpServer.start()
-    this.lifecycle.setDone(AppLifecycleEvents.HTTP_SERVER_READY)
+    AppLifecycle.setDone(AppLifecycleEvents.HTTP_SERVER_READY)
   }
 
   private startRealtime() {
@@ -284,7 +325,7 @@ Node: ${err.nodeName}`
     this.stats.track(
       'server',
       'start',
-      `isProEnabled: ${process.IS_PRO_ENABLED}; version: ${process.BOTPRESS_VERSION}; licensed: ${process.IS_LICENSED}`
+      `version: ${process.BOTPRESS_VERSION}, pro: ${process.IS_PRO_ENABLED}, licensed: ${process.IS_LICENSED}`
     )
   }
 }

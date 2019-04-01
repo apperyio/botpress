@@ -1,7 +1,11 @@
+import { EventEmitter } from 'events'
+
 const yn = require('yn')
 const path = require('path')
 const fs = require('fs')
 const metadataContent = require('../../metadata.json')
+const getos = require('./common/getos')
+const { Debug } = require('./debug')
 
 const printPlainError = err => {
   console.log('Error starting botpress')
@@ -11,6 +15,7 @@ const printPlainError = err => {
   console.log(err.stack)
 }
 
+global.DEBUG = Debug
 global.printErrorDefault = printPlainError
 
 const originalWrite = process.stdout.write
@@ -30,6 +35,7 @@ function stripDeprecationWrite(this: Function): boolean {
   return originalWrite.apply(this, arguments)
 }
 
+process.BOTPRESS_EVENTS = new EventEmitter()
 process.LOADED_MODULES = {}
 process.PROJECT_LOCATION = process.pkg
   ? path.dirname(process.execPath) // We point at the binary path
@@ -48,6 +54,7 @@ process.on('uncaughtException', err => {
 
 try {
   require('dotenv').config({ path: path.resolve(process.PROJECT_LOCATION, '.env') })
+  process.core_env = process.env
 
   const argv = require('yargs')
     .command(
@@ -90,7 +97,10 @@ try {
           }
         }
 
-        require('./bootstrap')
+        getos.default().then(distro => {
+          process.distro = distro
+          require('./bootstrap')
+        })
       }
     )
     .command(

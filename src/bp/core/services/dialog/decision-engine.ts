@@ -80,6 +80,7 @@ export class DecisionEngine {
         })
         const processedEvent = await this.dialogEngine.processEvent(sessionId, event)
         await this.stateManager.persist(processedEvent, false)
+        return
       } catch (err) {
         this.logger
           .forBot(event.botId)
@@ -88,12 +89,16 @@ export class DecisionEngine {
         await this._sendErrorMessage(event)
       }
     }
+
+    if (event.hasFlag(WellKnownFlags.FORCE_PERSIST_STATE)) {
+      await this.stateManager.persist(event, false)
+    }
   }
 
   protected _amendSuggestionsWithDecision(suggestions: IO.Suggestion[], turnsHistory: IO.DialogTurnHistory[]) {
     // TODO Write unit tests
     // TODO The ML-based decision unit will be inserted here
-    const replies = _.sortBy(suggestions, ['confidence'], ['DESC'])
+    const replies = _.orderBy(suggestions, ['confidence'], ['desc'])
     const lastMsg = _.last(turnsHistory)
     const lastMessageSource = lastMsg && lastMsg.replySource
 

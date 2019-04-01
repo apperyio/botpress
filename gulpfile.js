@@ -34,11 +34,14 @@ gulp.task('clean:node', cb => rimraf('**/node_modules/**', cb))
 gulp.task('clean:out', cb => rimraf('out', cb))
 gulp.task('clean:db', cb => rimraf('out/bp/data/storage/core.sqlite', cb))
 
+// Example: yarn cmd dev:module --public nlu or yarn cmd dev:module --private bank
+gulp.task('dev:module', gulp.series([modules.cleanModuleAssets, modules.createModuleSymlink]))
+
 gulp.task('changelog', () => {
   // see options here: https://github.com/conventional-changelog/conventional-changelog/tree/master/packages
   const changelogOts = {
     preset: 'angular',
-    releaseCount: 0
+    releaseCount: 1
   }
   const context = {}
   const gitRawCommitsOpts = {

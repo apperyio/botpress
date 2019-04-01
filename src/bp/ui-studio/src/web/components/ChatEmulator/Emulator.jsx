@@ -6,17 +6,17 @@ import JSONTree from 'react-json-tree'
 import _ from 'lodash'
 import nanoid from 'nanoid'
 import { Button, Tooltip, OverlayTrigger, Glyphicon } from 'react-bootstrap'
-import { HotKeys } from 'react-hotkeys'
-import { keyMap } from '~/keyboardShortcuts'
 import classnames from 'classnames'
 import inspectorTheme from './inspectorTheme'
 import Message from './Message'
 
 import style from './Emulator.styl'
+import Settings from './Settings'
 
 const USER_ID_KEY = `bp::${window.BOT_ID}::emulator::userId`
 const SENT_HISTORY_KEY = `bp::${window.BOT_ID}::emulator::sentHistory`
 const SENT_HISTORY_SIZE = 20
+const ENTER_KEY_CODE = 13
 
 export default class EmulatorChat extends React.Component {
   constructor(props) {
@@ -33,8 +33,11 @@ export default class EmulatorChat extends React.Component {
     sentHistory: JSON.parse(localStorage.getItem(SENT_HISTORY_KEY) || '[]'),
     sentHistoryIndex: 0,
     isInspectorVisible: true,
-    isVerticalView: true,
-    isTypingHidden: true
+    isVerticalView: false,
+    isTypingHidden: true,
+    isSettingsOpen: false,
+    isSendingRawPayload: false,
+    invalidMessage: false
   }
 
   getOrCreateUserId(forceNew = false) {
@@ -76,23 +79,49 @@ export default class EmulatorChat extends React.Component {
     })
   }
 
+  getAxiosConfig() {
+    let axiosConfig = { params: { include: 'nlu,state,suggestions,decision,credentials' } }
+
+    if (this.state.externalToken) {
+      axiosConfig = {
+        ...axiosConfig,
+        headers: {
+          'X-BP-ExternalAuth': `Bearer ${this.state.externalToken}`
+        }
+      }
+    }
+
+    return axiosConfig
+  }
+
   sendText = async () => {
     if (!this.state.textInputValue.length) {
       return
     }
 
     const text = this.state.textInputValue
+    let messagePayload = { text }
+
+    if (this.state.isSendingRawPayload) {
+      try {
+        messagePayload = JSON.parse(text)
+      } catch (error) {
+        console.log('Error while parsing the JSON payload: ', error)
+        this.setState({ invalidMessage: true })
+        return
+      }
+    }
 
     // Wait for state to be set fully to prevent race conditions
-    await Promise.fromCallback(cb => this.setState({ textInputValue: '', sending: true }, cb))
+    await Promise.fromCallback(cb => this.setState({ textInputValue: '', sending: true, invalidMessage: false }, cb))
 
     const sentAt = Date.now()
     let msg
     try {
       const res = await axios.post(
         `${window.BOT_API_PATH}/converse/${this.state.userId}/secured`,
-        { text },
-        { params: { include: 'nlu,state,suggestions,decision' } }
+        messagePayload,
+        this.getAxiosConfig()
       )
 
       const duration = Date.now() - sentAt
@@ -124,8 +153,12 @@ export default class EmulatorChat extends React.Component {
   }
 
   handleKeyPress = e => {
-    if (!e.shiftKey && e.key === 'Enter') {
-      this.sendText()
+    if (!e.shiftKey && (e.keyCode === ENTER_KEY_CODE || e.which === ENTER_KEY_CODE)) {
+      if (e.ctrlKey) {
+        this.handleChangeUserId(() => this.sendText())
+      } else {
+        this.sendText()
+      }
       e.preventDefault()
     }
   }
@@ -148,14 +181,19 @@ export default class EmulatorChat extends React.Component {
     return level <= 1
   }
 
-  handleChangeUserId = () => {
+  handleChangeUserId = callback => {
     this.setState(
       {
         messages: [],
         selectedIndex: -1,
         userId: this.getOrCreateUserId(true)
       },
-      () => this.textInputRef.current.focus()
+      () => {
+        this.textInputRef.current.focus()
+        if (_.isFunction(callback)) {
+          callback()
+        }
+      }
     )
   }
 
@@ -202,41 +240,34 @@ export default class EmulatorChat extends React.Component {
       <textarea
         tabIndex={1}
         ref={this.textInputRef}
-        className={classnames(style.msgInput, { [style.disabled]: this.state.sending })}
+        className={classnames(style.msgInput, {
+          [style.disabled]: this.state.sending,
+          [style.error]: this.state.invalidMessage
+        })}
         type="text"
         onKeyPress={this.handleKeyPress}
         onKeyDown={this.handleKeyDown}
         value={this.state.textInputValue}
-        placeholder="Type a message here"
+        placeholder={
+          this.state.isSendingRawPayload
+            ? 'Type your raw payload here. It must be valid JSON. Ex: {"text": "bla"}'
+            : 'Type a message here'
+        }
         onChange={this.handleMsgChange}
       />
     )
   }
 
-  toggleInspector = () => {
-    this.setState({ isInspectorVisible: !this.state.isInspectorVisible })
-  }
-
-  toggleView = () => {
-    this.setState({ isVerticalView: !this.state.isVerticalView })
-  }
-
-  toggleTyping = () => {
-    this.setState({ isTypingHidden: !this.state.isTypingHidden })
-  }
+  hideSettings = () => this.setState({ isSettingsOpen: false })
+  displaySettings = () => this.setState({ isSettingsOpen: true })
+  updateSettings = newSettings => this.setState({ ...newSettings })
 
   render() {
-    const keyHandlers = {
-      'emulator-reset': this.handleChangeUserId
-    }
-
-    const toggleTyping = <Tooltip id="toggleTyping">Toggle Display of 'Typing' indicator</Tooltip>
-    const toggleTooltip = <Tooltip id="toggleTooltip">Toggle View</Tooltip>
-    const toggleInspector = <Tooltip id="toggleInspector">Toggle Inspector</Tooltip>
-    const newSessionTooltip = <Tooltip id="toggleInspector">Start a new session ({keyMap['emulator-reset']})</Tooltip>
+    const toggleSettings = <Tooltip id="editSettings">Emulator Settings</Tooltip>
+    const newSessionTooltip = <Tooltip id="toggleInspector">Start a new session (ctrl+enter on send)</Tooltip>
 
     return (
-      <HotKeys handlers={keyHandlers} className={style.container}>
+      <div className={style.container}>
         <div className={style.toolbar}>
           <OverlayTrigger placement="bottom" overlay={newSessionTooltip}>
             <Button onClick={this.handleChangeUserId}>
@@ -244,37 +275,35 @@ export default class EmulatorChat extends React.Component {
             </Button>
           </OverlayTrigger>
           <div style={{ float: 'right' }}>
-            <OverlayTrigger placement="bottom" overlay={toggleTyping}>
-              <Button onClick={this.toggleTyping}>
-                <Glyphicon glyph="pencil" />
-              </Button>
-            </OverlayTrigger>
-            <OverlayTrigger placement="bottom" overlay={toggleInspector}>
-              <Button onClick={this.toggleInspector}>
-                <Glyphicon glyph="search" />
-              </Button>
-            </OverlayTrigger>
-            <OverlayTrigger placement="bottom" overlay={toggleTooltip}>
-              <Button onClick={this.toggleView}>
-                <Glyphicon glyph="expand" />
+            <OverlayTrigger placement="bottom" overlay={toggleSettings}>
+              <Button onClick={this.displaySettings}>
+                <Glyphicon glyph="cog" />
               </Button>
             </OverlayTrigger>
           </div>
+          <Settings
+            userId={this.state.userId}
+            externalToken={this.state.externalToken}
+            isSendingRawPayload={this.state.isSendingRawPayload}
+            isVerticalView={this.state.isVerticalView}
+            show={this.state.isSettingsOpen}
+            onHideSettings={this.hideSettings}
+            onUpdateSettings={this.updateSettings}
+          />
         </div>
         <div className={style.panes}>
           <SplitPane
             split={this.state.isVerticalView ? 'vertical' : 'horizontal'}
             minSize={150}
-            defaultSize={'70%'}
+            defaultSize={'50%'}
             pane2Style={{ overflowY: 'auto', backgroundColor: 'var(--c-background--dark-1)' }}
-            pane1ClassName={classnames({ [style.historyFullWidth]: !this.state.isInspectorVisible })}
           >
             {this.renderHistory()}
             {this.renderInspector()}
           </SplitPane>
         </div>
         {this.renderMessageInput()}
-      </HotKeys>
+      </div>
     )
   }
 }

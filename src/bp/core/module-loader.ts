@@ -53,8 +53,7 @@ export class ModuleLoader {
     @inject(TYPES.Logger)
     @tagged('name', 'ModuleLoader')
     private logger: Logger,
-    @inject(TYPES.GhostService) private ghost: GhostService,
-    @inject(TYPES.AppLifecycle) private lifecycle: AppLifecycle
+    @inject(TYPES.GhostService) private ghost: GhostService
   ) {}
 
   public get configReader() {
@@ -138,7 +137,7 @@ export class ModuleLoader {
   }
 
   private async callModulesOnReady(modules: ModuleEntryPoint[], initedModules: {}): Promise<void> {
-    await this.lifecycle.waitFor(AppLifecycleEvents.HTTP_SERVER_READY)
+    await AppLifecycle.waitFor(AppLifecycleEvents.HTTP_SERVER_READY)
 
     // Once all the modules have been loaded, we tell them it's ready
     // TODO We probably want to wait until Botpress is done loading the other services etc
@@ -183,12 +182,13 @@ export class ModuleLoader {
     return Array.from(this.entryPoints.values()).map(x => x.definition)
   }
 
-  public async getFlowGenerator(moduleName, skillId): Promise<any> {
+  public getFlowGenerator(moduleName: string, skillId: string): Function | undefined {
     const module = this.getModule(moduleName)
-    return _.get(_.find(module.skills, x => x.id === skillId), 'flowGenerator')
+    const skill = _.find(module.skills, x => x.id === skillId)
+    return skill && skill.flowGenerator
   }
 
-  public async getAllSkills(): Promise<Skill[]> {
+  public async getAllSkills(): Promise<Partial<Skill>[]> {
     const skills = Array.from(this.entryPoints.values())
       .filter(module => module.skills)
       .map(module => {
@@ -200,7 +200,7 @@ export class ModuleLoader {
     return _.flatten(skills)
   }
 
-  private getModule(module: string) {
+  private getModule(module: string): ModuleEntryPoint {
     module = module.toLowerCase()
     if (!this.entryPoints.has(module)) {
       throw new Error(`Module '${module}' not registered`)

@@ -2,12 +2,26 @@ import { Logger } from 'botpress/sdk'
 import { defaultAdminRole, defaultRoles, defaultUserRole } from 'common/default-roles'
 import { GhostConfigProvider } from 'core/config/config-loader'
 import { AuthRole, AuthUser, BasicAuthUser, ExternalAuthUser, Workspace } from 'core/misc/interfaces'
+import { Statistics } from 'core/stats'
 import { inject, injectable, tagged } from 'inversify'
 import _ from 'lodash'
 
 import { TYPES } from '../types'
 
 import { GhostService } from './ghost/service'
+
+const DEFAULT_USER_ATTRIBUTES = [
+  'email',
+  'company',
+  'created_on',
+  'firstname',
+  'fullName',
+  'last_ip',
+  'last_logon',
+  'lastname',
+  'location',
+  'role'
+]
 
 @injectable()
 export class WorkspaceService {
@@ -16,7 +30,8 @@ export class WorkspaceService {
     @tagged('name', 'WorkspaceService')
     private logger: Logger,
     @inject(TYPES.GhostService) private ghost: GhostService,
-    @inject(TYPES.ConfigProvider) private configProvider: GhostConfigProvider
+    @inject(TYPES.ConfigProvider) private configProvider: GhostConfigProvider,
+    @inject(TYPES.Statistics) private stats: Statistics
   ) {}
 
   async initialize(): Promise<void> {
@@ -73,10 +88,15 @@ export class WorkspaceService {
     }
   }
 
-  async findUser(where: {}, selectFields?: Array<keyof AuthUser>): Promise<AuthUser | undefined> {
+  async findUser(where: {}, selectFields?: Array<keyof AuthUser> | '*'): Promise<Partial<AuthUser> | undefined> {
     const workspace = await this.getWorkspace()
-    const user = _.head(_.filter(workspace.users, where))
-    return user
+    const user = _.head(_.filter<AuthUser>(workspace.users, where))
+
+    if (selectFields === '*') {
+      return user
+    }
+
+    return _.pick<AuthUser>(user, ...(selectFields || DEFAULT_USER_ATTRIBUTES)) as Partial<AuthUser>
   }
 
   async findRole(roleId: string): Promise<AuthRole> {
@@ -97,7 +117,6 @@ export class WorkspaceService {
     const workspace = await this.getWorkspace()
     const newUser = {
       ...authUser,
-      role: workspace.defaultRole,
       created_on: new Date()
     } as AuthUser
 
@@ -114,8 +133,10 @@ export class WorkspaceService {
   }
 
   async updateUser(email: string, userData: Partial<AuthUser>) {
+    this.stats.track('user', 'update')
+
     const workspace = await this.getWorkspace()
-    const original = await this.findUser({ email })
+    const original = (await this.findUser({ email }, '*')) as AuthUser
     if (!original) {
       throw Error('Cannot find user')
     }
@@ -132,6 +153,8 @@ export class WorkspaceService {
   }
 
   async deleteUser(email: string) {
+    this.stats.track('user', 'delete')
+
     const workspace = await this.getWorkspace()
     const index = _.findIndex(workspace.users, x => x.email === email)
 

@@ -43,7 +43,9 @@ export class IOEvent implements sdk.IO.Event {
   public readonly preview: string
   public readonly suggestions?: sdk.IO.Suggestion[]
   public readonly state: any
+  public readonly credentials?: any
   private readonly flags: any
+  private readonly nlu?: sdk.IO.EventUnderstanding
 
   constructor(args: sdk.IO.EventCtorArgs) {
     this.type = args.type
@@ -52,15 +54,27 @@ export class IOEvent implements sdk.IO.Event {
     this.payload = args.payload
     this.target = args.target
     this.botId = args.botId
-
     this.threadId = args.threadId ? args.threadId.toString() : undefined
     this.id = args.id || (Date.now() * 100000 + ((Math.random() * 100000) | 0)).toString()
     this.preview = args.preview || this.constructPreview()
     this.flags = {}
     this.state = {}
+    args.nlu = args.nlu || {}
 
     if (this.direction === 'incoming') {
-      this.suggestions = []
+      this.suggestions = args.suggestions || []
+      this.credentials = args.credentials
+    }
+
+    this.nlu = {
+      entities: [],
+      language: 'n/a',
+      slots: {},
+      intent: { name: 'none', confidence: 1, context: 'global' },
+      intents: [],
+      errored: false,
+      includedContexts: ['global'],
+      ...args.nlu
     }
   }
 

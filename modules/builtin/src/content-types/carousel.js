@@ -23,11 +23,19 @@ function render(data) {
         subtitle: card.subtitle,
         buttons: (card.actions || []).map(a => {
           if (a.action === 'Say something') {
-            throw new Error('Webchat carousel does not support "Say something" action-buttons at the moment')
+            return {
+              title: a.title,
+              payload: a.title
+            }
           } else if (a.action === 'Open URL') {
             return {
               title: a.title,
-              url: a.url
+              url: a.url.replace('BOT_URL', data.BOT_URL)
+            }
+          } else if (a.action === 'Postback') {
+            return {
+              title: a.title,
+              payload: a.payload
             }
           } else {
             throw new Error(`Webchat carousel does not support "${a.action}" action-buttons at the moment`)
@@ -38,9 +46,50 @@ function render(data) {
   ]
 }
 
+function renderMessenger(data) {
+  const renderElements = data => {
+    return data.items.map(card => ({
+      title: card.title,
+      image_url: card.image ? url.resolve(data.BOT_URL, card.image) : null,
+      subtitle: card.subtitle,
+      buttons: (card.actions || []).map(a => {
+        if (a.action === 'Say something') {
+          throw new Error('Channel-Messenger carousel does not support "Say something" action-buttons at the moment')
+        } else if (a.action === 'Open URL') {
+          return {
+            type: 'web_url',
+            url: a.url,
+            title: a.title
+          }
+        } else {
+          throw new Error(`Channel-Messenger carousel does not support "${a.action}" action-buttons at the moment`)
+        }
+      })
+    }))
+  }
+
+  return [
+    {
+      type: 'typing',
+      value: data.typing
+    },
+    {
+      attachment: {
+        type: 'template',
+        payload: {
+          template_type: 'generic',
+          elements: renderElements(data)
+        }
+      }
+    }
+  ]
+}
+
 function renderElement(data, channel) {
-  if (channel === 'web' || channel === 'api') {
+  if (channel === 'web' || channel === 'api' || channel === 'telegram') {
     return render(data)
+  } else if (channel === 'messenger') {
+    return renderMessenger(data)
   }
 
   return [] // TODO Handle channel not supported
@@ -64,7 +113,6 @@ module.exports = {
       ...base.typingIndicators
     }
   },
-
-  computePreviewText: formData => `Carousel: ${formData.length}`,
+  computePreviewText: formData => `Carousel: (${formData.items.length}) ${formData.items[0].title}`,
   renderElement: renderElement
 }

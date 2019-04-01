@@ -91,12 +91,12 @@ export class BotService {
       return this._botIds
     }
 
-    const bots = await this.ghostService.bots().directoryListing('/', '*bot.config.json')
+    const bots = await this.ghostService.bots().directoryListing('/', 'bot.config.json')
     return (this._botIds = _.map(bots, x => path.dirname(x)))
   }
 
   async addBot(bot: Bot, botTemplate: BotTemplate): Promise<void> {
-    this.stats.track('ce', 'addBot')
+    this.stats.track('bot', 'create')
 
     const { error } = Joi.validate(bot, BotCreationSchema)
     if (error) {
@@ -108,22 +108,40 @@ export class BotService {
     this._invalidateBotIds()
   }
 
-  async updateBot(botId: string, bot: Bot): Promise<void> {
-    this.stats.track('ce', 'updateBot')
+  async updateBot(botId: string, updatedBot: Bot): Promise<void> {
+    this.stats.track('bot', 'update')
 
-    const { error } = Joi.validate(bot, BotEditSchema)
+    const { error } = Joi.validate(updatedBot, BotEditSchema)
     if (error) {
       throw new InvalidOperationError(`An error occurred while updating the bot: ${error.message}`)
     }
 
     const actualBot = await this.configProvider.getBotConfig(botId)
-    actualBot.name = bot.name
-    actualBot.description = bot.description
-    await this.configProvider.setBotConfig(botId, actualBot)
+    const updatedFields = _.pick(updatedBot, [
+      'name',
+      'description',
+      'category',
+      'details',
+      'disabled',
+      'private'
+    ]) as Partial<BotConfig>
+
+    await this.configProvider.setBotConfig(botId, {
+      ...actualBot,
+      ...updatedFields
+    })
+
+    if (actualBot.disabled && !updatedBot.disabled) {
+      await this.mountBot(botId)
+    } else if (!actualBot.disabled && updatedBot.disabled) {
+      await this.unmountBot(botId)
+    }
   }
 
   @WrapErrorsWith(args => `Could not delete bot '${args[0]}'`, { hideStackTrace: true })
   async deleteBot(botId: string) {
+    this.stats.track('bot', 'delete')
+
     await this.unmountBot(botId)
     await this.ghostService.forBot(botId).deleteFolder('/')
     this._invalidateBotIds()

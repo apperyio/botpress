@@ -15,6 +15,10 @@
   &.disabled {
     opacity: 0.5;
   }
+
+  &.error {
+    border: 1px solid var(--c-text--error);
+  }
 }
 
 .container {
@@ -33,12 +37,6 @@
   height: 100%;
   overflow-y: scroll;
   overflow-x: hidden;
-}
-
-// Class required to hide inspector
-.historyFullWidth {
-  width: 100% !important;
-  height: 100% !important;
 }
 
 .inspector {
@@ -83,7 +81,7 @@
   }
 }
 
-:global(.Resizer.vertical ) {
+:global(.Resizer.vertical) {
   background: black;
   width: 8px;
   cursor: col-resize;

@@ -3,9 +3,11 @@ import { checkRule } from 'common/auth'
 import { WorkspaceService } from 'core/services/workspace-service'
 import { NextFunction, Request, Response } from 'express'
 import Joi from 'joi'
+import onHeaders from 'on-headers'
 
 import { AuthUser, RequestWithUser, TokenUser } from '../misc/interfaces'
 import AuthService from '../services/auth/auth-service'
+import { incrementMetric } from '../services/monitoring'
 
 import {
   BadRequestError,
@@ -16,7 +18,16 @@ import {
   UnauthorizedError
 } from './errors'
 
-export type BPRequest = Request & { authUser: AuthUser | undefined; tokenUser: TokenUser | undefined }
+const debugFailure = DEBUG('audit:collab:fail')
+const debugSuccess = DEBUG('audit:collab:success')
+const debugSuperSuccess = DEBUG('audit:admin:success')
+const debugSuperFailure = DEBUG('audit:admin:fail')
+
+export type BPRequest = Request & {
+  authUser: AuthUser | undefined
+  tokenUser: TokenUser | undefined
+  credentials: any | undefined
+}
 
 export type AsyncMiddleware = (
   fn: (req: BPRequest, res: Response, next?: NextFunction | undefined) => Promise<any>
@@ -31,6 +42,19 @@ export const asyncMiddleware = (logger: Logger, routerName: string): AsyncMiddle
 
     next(err)
   })
+}
+
+export const monitoringMiddleware = (req, res, next) => {
+  const startAt = Date.now()
+
+  onHeaders(res, () => {
+    const timeInMs = Date.now() - startAt
+    incrementMetric('requests.count')
+    incrementMetric('requests.latency_sum', timeInMs)
+    res.setHeader('X-Response-Time', `${timeInMs}ms`)
+  })
+
+  next()
 }
 
 export const validateRequestSchema = (property: string, req: Request, schema: Joi.AnySchema) => {
@@ -105,19 +129,35 @@ export const loadUser = (authService: AuthService) => async (req: Request, res: 
 export const assertSuperAdmin = (req: Request, res: Response, next: Function) => {
   const { tokenUser } = <RequestWithUser>req
   if (!tokenUser) {
+    debugSuperFailure(`${req.originalUrl} %o`, {
+      method: req.method,
+      ip: req.ip
+    })
     return next(new InternalServerError('No tokenUser in request'))
   }
 
   if (!tokenUser.isSuperAdmin) {
+    debugSuperFailure(`${req.originalUrl} %o`, {
+      method: req.method,
+      ip: req.ip,
+      user: tokenUser
+    })
     return next(new ForbiddenError('User needs to be super admin to perform this action'))
   }
+
+  debugSuperSuccess(`${req.originalUrl} %o`, {
+    url: req.originalUrl,
+    method: req.method,
+    ip: req.ip,
+    user: tokenUser
+  })
 
   next()
 }
 
 export const assertBotpressPro = (workspaceService: WorkspaceService) => async (
-  req: RequestWithUser,
-  res: Response,
+  _req: RequestWithUser,
+  _res: Response,
   next: NextFunction
 ) => {
   if (!process.IS_PRO_ENABLED || !process.IS_LICENSED) {
@@ -133,22 +173,47 @@ export const assertBotpressPro = (workspaceService: WorkspaceService) => async (
 
 export const needPermissions = (workspaceService: WorkspaceService) => (operation: string, resource: string) => async (
   req: RequestWithUser,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ) => {
   const email = req.tokenUser && req.tokenUser!.email
-  const user = workspaceService.findUser({ email })
+  const user = await workspaceService.findUser({ email })
+
   if (!user) {
+    debugFailure(`${req.originalUrl} %o`, {
+      method: req.method,
+      email,
+      operation,
+      resource,
+      ip: req.ip
+    })
     return next(new NotFoundError(`User "${email}" does not exists`))
   }
 
   const role = await workspaceService.getRoleForUser(req.tokenUser!.email)
 
   if (!role || !checkRule(role.rules, operation, resource)) {
+    debugFailure(req.originalUrl, {
+      method: req.method,
+      email,
+      operation,
+      resource,
+      userRole: role && role.id,
+      ip: req.ip
+    })
     return next(
       new ForbiddenError(`user does not have sufficient permissions to "${operation}" on ressource "${resource}"`)
     )
   }
+
+  debugSuccess(`${req.originalUrl} %o`, {
+    method: req.method,
+    email,
+    operation,
+    resource,
+    userRole: role && role.id,
+    ip: req.ip
+  })
 
   next()
 }

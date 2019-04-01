@@ -8,7 +8,6 @@ import { VError } from 'verror'
 
 import { GhostService } from '../'
 
-import ModuleResolver from '../../modules/resolver'
 type Config = { [key: string]: any }
 
 /**
@@ -36,8 +35,7 @@ export default class ConfigReader {
 
   @Memoize()
   private async getModuleConfigSchema(moduleId: string): Promise<any> {
-    const resolver = new ModuleResolver(this.logger)
-    const modulePath = await resolver.resolve('MODULES_ROOT/' + moduleId)
+    const modulePath = process.LOADED_MODULES[moduleId]
     const configSchema = path.resolve(modulePath, 'assets', 'config.schema.json')
 
     try {
@@ -148,7 +146,8 @@ export default class ConfigReader {
     return this.getMerged(moduleId)
   }
 
-  @Memoize()
+  // Don't @Memoize() this fn. It only memoizes on the first argument
+  // https://github.com/steelsojka/lodash-decorators/blob/master/src/memoize.ts#L15
   public getForBot(moduleId: string, botId: string): Promise<Config> {
     return this.getMerged(moduleId, botId)
   }

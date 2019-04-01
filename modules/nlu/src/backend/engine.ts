@@ -1,33 +1,42 @@
 import retry from 'bluebird-retry'
 import * as sdk from 'botpress/sdk'
 import crypto from 'crypto'
+import fs from 'fs'
 import { flatMap } from 'lodash'
 import _ from 'lodash'
 import ms from 'ms'
+import { tmpNameSync } from 'tmp'
 
 import { Config } from '../config'
 
 import { DucklingEntityExtractor } from './pipelines/entities/duckling_extractor'
-import { extractListEntities, extractPatternEntities } from './pipelines/entities/pattern_extractor'
+import PatternExtractor from './pipelines/entities/pattern_extractor'
 import FastTextClassifier from './pipelines/intents/ft_classifier'
 import { createIntentMatcher, findMostConfidentIntentMeanStd } from './pipelines/intents/utils'
 import { FastTextLanguageId } from './pipelines/language/ft_lid'
 import CRFExtractor from './pipelines/slots/crf_extractor'
 import { generateTrainingSequence } from './pipelines/slots/pre-processor'
 import Storage from './storage'
-import { EntityExtractor, LanguageIdentifier, Model, MODEL_TYPES, SlotExtractor } from './typings'
+import { Engine, EntityExtractor, LanguageIdentifier, Model, MODEL_TYPES, SlotExtractor } from './typings'
 
-export default class ScopedEngine {
+const debug = DEBUG('nlu')
+const debugExtract = debug.sub('extract')
+const debugIntents = debugExtract.sub('intents')
+const debugEntities = debugExtract.sub('entities')
+
+export default class ScopedEngine implements Engine {
   public readonly storage: Storage
   public confidenceTreshold: number = 0.7
 
   private _preloaded: boolean = false
+  private _lmLoaded: boolean = false
   private _currentModelHash: string
 
   private readonly intentClassifier: FastTextClassifier
   private readonly langDetector: LanguageIdentifier
   private readonly systemEntityExtractor: EntityExtractor
   private readonly slotExtractor: SlotExtractor
+  private readonly entityExtractor: PatternExtractor
 
   private retryPolicy = {
     interval: 100,
@@ -42,16 +51,17 @@ export default class ScopedEngine {
   private _autoTrainTimer: NodeJS.Timer
 
   constructor(
-    private logger: sdk.Logger,
-    private botId: string,
-    private readonly config: Config,
+    protected logger: sdk.Logger,
+    protected botId: string,
+    protected readonly config: Config,
     readonly toolkit: typeof sdk.MLToolkit
   ) {
     this.storage = new Storage(config, this.botId)
-    this.intentClassifier = new FastTextClassifier(toolkit, this.logger)
+    this.intentClassifier = new FastTextClassifier(toolkit, this.logger, this.config.fastTextOverrides || {})
     this.langDetector = new FastTextLanguageId(toolkit, this.logger)
     this.systemEntityExtractor = new DucklingEntityExtractor(this.logger)
     this.slotExtractor = new CRFExtractor(toolkit)
+    this.entityExtractor = new PatternExtractor(toolkit)
     this._autoTrainInterval = ms(config.autoTrainInterval || 0)
   }
 
@@ -75,7 +85,14 @@ export default class ScopedEngine {
     }
   }
 
-  async sync(): Promise<void> {
+  protected async getIntents(): Promise<sdk.NLU.IntentDefinition[]> {
+    return this.storage.getIntents()
+  }
+
+  /**
+   * @return The trained model hash
+   */
+  async sync(forceRetrain: boolean = false): Promise<string> {
     if (this._isSyncing) {
       this._isSyncingTwice = true
       return
@@ -83,38 +100,46 @@ export default class ScopedEngine {
 
     try {
       this._isSyncing = true
-      const intents = await this.storage.getIntents()
+      const intents = await this.getIntents()
       const modelHash = this._getModelHash(intents)
+      let loaded = false
 
-      if (await this.storage.modelExists(modelHash)) {
+      if (!forceRetrain && (await this.storage.modelExists(modelHash))) {
         try {
-          await this._loadModels(intents, modelHash)
+          await this.loadModels(intents, modelHash)
+          loaded = true
         } catch (e) {
-          this.logger.attachError(e).warn('Cannot load models from storage')
-          await this._trainModels(intents, modelHash)
+          this.logger.attachError(e).warn('Could not load models from storage')
         }
-      } else {
-        this.logger.debug('Models need to be retrained')
-        await this._trainModels(intents, modelHash)
+      }
+
+      if (!loaded) {
+        this.logger.debug('Retraining model')
+        await this.trainModels(intents, modelHash)
+        await this.loadModels(intents, modelHash)
       }
 
       this._currentModelHash = modelHash
       this._preloaded = true
+    } catch (e) {
+      this.logger.attachError(e).error('Could not sync model')
     } finally {
       this._isSyncing = false
       if (this._isSyncingTwice) {
         this._isSyncingTwice = false
-        this.sync() // This floating promise is voluntary
+        return this.sync() // This floating promise is voluntary
       }
     }
+
+    return this._currentModelHash
   }
 
-  async extract(incomingEvent: sdk.IO.Event): Promise<sdk.IO.EventUnderstanding> {
+  async extract(text: string, includedContexts: string[]): Promise<sdk.IO.EventUnderstanding> {
     if (!this._preloaded) {
       await this.sync()
     }
 
-    return retry(() => this._extract(incomingEvent), this.retryPolicy)
+    return retry(() => this._extract(text, includedContexts), this.retryPolicy)
   }
 
   async checkSyncNeeded(): Promise<boolean> {
@@ -124,7 +149,34 @@ export default class ScopedEngine {
     return intents.length && this._currentModelHash !== modelHash && !this._isSyncing
   }
 
-  private async _loadModels(intents: sdk.NLU.IntentDefinition[], modelHash: string) {
+  private async _loadLanguageModel() {
+    if (this._lmLoaded) {
+      return
+    }
+
+    // N/A: we don't care about the hash, we just want the language models which are always returned whatever the hash
+    const models = await this.storage.getModelsFromHash('N/A')
+
+    const intentLangModel = _.chain(models)
+      .filter(model => model.meta.type === MODEL_TYPES.INTENT_LM)
+      .orderBy(model => model.meta.created_on, 'desc')
+      .filter(model => model.meta.context === this.config.languageModel)
+      .first()
+      .value()
+
+    if (intentLangModel && this.intentClassifier instanceof FastTextClassifier) {
+      const fn = tmpNameSync({ postfix: '.vec' })
+      fs.writeFileSync(fn, intentLangModel.model)
+      this.intentClassifier.prebuiltWordVecPath = fn
+      this.logger.debug(`Using Language Model "${intentLangModel.meta.fileName}"`)
+    } else {
+      this.logger.warn(`Language model not found for "${this.config.languageModel}"`)
+    }
+
+    this._lmLoaded = true
+  }
+
+  protected async loadModels(intents: sdk.NLU.IntentDefinition[], modelHash: string) {
     this.logger.debug(`Restoring models '${modelHash}' from storage`)
 
     const models = await this.storage.getModelsFromHash(modelHash)
@@ -160,7 +212,8 @@ export default class ScopedEngine {
         context,
         created_on: Date.now(),
         hash,
-        type
+        type,
+        scope: 'bot'
       },
       model
     }
@@ -201,8 +254,10 @@ export default class ScopedEngine {
     }
   }
 
-  private async _trainModels(intentDefs: sdk.NLU.IntentDefinition[], modelHash: string) {
+  protected async trainModels(intentDefs: sdk.NLU.IntentDefinition[], modelHash: string) {
     try {
+      await this._loadLanguageModel()
+
       const intentModels = await this._trainIntentClassifier(intentDefs, modelHash)
       const slotTaggerModels = await this._trainSlotTagger(intentDefs, modelHash)
 
@@ -221,19 +276,41 @@ export default class ScopedEngine {
 
   private async _extractEntities(text: string, lang: string): Promise<sdk.NLU.Entity[]> {
     const customEntityDefs = await this.storage.getCustomEntities()
-    const patternEntities = extractPatternEntities(text, customEntityDefs.filter(ent => ent.type === 'pattern'))
-    const listEntities = extractListEntities(text, customEntityDefs.filter(ent => ent.type === 'list'))
-    const systemEntities = await this.systemEntityExtractor.extract(text, lang)
 
+    const patternEntities = await this.entityExtractor.extractPatterns(
+      text,
+      customEntityDefs.filter(ent => ent.type === 'pattern')
+    )
+
+    const listEntities = await this.entityExtractor.extractLists(
+      text,
+      lang,
+      customEntityDefs.filter(ent => ent.type === 'list')
+    )
+
+    const systemEntities = await this.systemEntityExtractor.extract(text, lang)
+    debugEntities(text, { systemEntities, patternEntities, listEntities })
     return [...systemEntities, ...patternEntities, ...listEntities]
   }
 
-  private async _extractIntents(text: string): Promise<{ intents: sdk.NLU.Intent[]; intent: sdk.NLU.Intent }> {
-    const intents = await this.intentClassifier.predict(text)
+  private async _extractIntents(
+    text: string,
+    includedContexts: string[]
+  ): Promise<{ intents: sdk.NLU.Intent[]; intent: sdk.NLU.Intent; includedContexts: string[] }> {
+    const intents = await this.intentClassifier.predict(text, includedContexts)
     const intent = findMostConfidentIntentMeanStd(intents, this.confidenceTreshold)
     intent.matches = createIntentMatcher(intent.name)
 
+    // alter ctx with the given predictions in case where no ctx were provided
+    includedContexts = _.chain(intents)
+      .map(p => p.context)
+      .uniq()
+      .value()
+
+    debugIntents(text, { intents })
+
     return {
+      includedContexts,
       intents,
       intent
     }
@@ -248,15 +325,15 @@ export default class ScopedEngine {
     return await this.slotExtractor.extract(text, intentDef, entities)
   }
 
-  private async _extract(incomingEvent: sdk.IO.Event): Promise<sdk.IO.EventUnderstanding> {
+  private async _extract(text: string, includedContexts: string[]): Promise<sdk.IO.EventUnderstanding> {
     let ret: any = { errored: true }
     const t1 = Date.now()
     try {
-      const text = incomingEvent.preview
       ret.language = await this.langDetector.identify(text)
-      ret = { ...ret, ...(await this._extractIntents(text)) }
+      ret = { ...ret, ...(await this._extractIntents(text, includedContexts)) }
       ret.entities = await this._extractEntities(text, ret.language)
       ret.slots = await this._extractSlots(text, ret.intent, ret.entities)
+      debugEntities('slots', { text, slots: ret.slots })
       ret.errored = false
     } catch (error) {
       this.logger.attachError(error).error(`Could not extract whole NLU data, ${error}`)

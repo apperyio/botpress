@@ -26,9 +26,9 @@ export interface Sequence {
 export type EngineByBot = { [botId: string]: Engine }
 
 export interface Engine {
-  sync(): Promise<void>
+  sync(forceRetrain: boolean): Promise<string>
   checkSyncNeeded(): Promise<boolean>
-  extract(event): Promise<sdk.IO.EventUnderstanding>
+  extract(text: string, includedContexts: string[]): Promise<sdk.IO.EventUnderstanding>
 }
 
 export interface EntityExtractor {
@@ -46,7 +46,7 @@ export type IntentModel = { name: string; model: Buffer }
 export interface IntentClassifier {
   load(models: IntentModel[]): Promise<void>
   train(intents: sdk.NLU.IntentDefinition[]): Promise<IntentModel[]>
-  predict(input: string): Promise<sdk.NLU.Intent[]>
+  predict(input: string, includedContexts: string[]): Promise<sdk.NLU.Intent[]>
 }
 
 export interface LanguageIdentifier {
@@ -54,12 +54,11 @@ export interface LanguageIdentifier {
 }
 
 export const MODEL_TYPES = {
-  INTENT: <ModelType>'intent',
-  SLOT_LANG: <ModelType>'slot-language-model',
-  SLOT_CRF: <ModelType>'slot-crf'
+  INTENT: 'intent',
+  SLOT_LANG: 'slot-language-model',
+  SLOT_CRF: 'slot-crf',
+  INTENT_LM: 'intent-lm'
 }
-
-export type ModelType = 'intent' | 'slot-language-model' | 'slot-crf'
 
 export interface ModelMeta {
   fileName?: string
@@ -67,6 +66,7 @@ export interface ModelMeta {
   hash: string
   context: string
   type: string
+  scope: string
 }
 
 export interface Model {

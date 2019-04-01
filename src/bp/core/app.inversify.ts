@@ -1,17 +1,17 @@
 import { Logger } from 'botpress/sdk'
 import { Container } from 'inversify'
-import { AppLifecycle } from 'lifecycle'
 
 import { BotpressAPIProvider } from './api'
 import { Botpress } from './botpress'
 import { BotConfigWriter } from './config'
 import { ConfigProvider, GhostConfigProvider } from './config/config-loader'
 import { DatabaseContainerModules } from './database/database.inversify'
-import { LoggerPersister, LoggerProvider, PersistedConsoleLogger } from './logger'
+import { LoggerDbPersister, LoggerFilePersister, LoggerProvider, PersistedConsoleLogger } from './logger'
 import { applyDisposeOnExit, applyInitializeFromConfig } from './misc/inversify'
 import { ModuleLoader } from './module-loader'
 import { RepositoriesContainerModules } from './repositories/repositories.inversify'
 import HTTPServer from './server'
+import { MonitoringService } from './services/monitoring'
 import { DataRetentionJanitor } from './services/retention/janitor'
 import { DataRetentionService } from './services/retention/service'
 import { ServicesContainerModules } from './services/services.inversify'
@@ -50,13 +50,13 @@ container.bind<LoggerProvider>(TYPES.LoggerProvider).toProvider<Logger>(context 
 })
 
 container
-  .bind<AppLifecycle>(TYPES.AppLifecycle)
-  .to(AppLifecycle)
+  .bind<LoggerDbPersister>(TYPES.LoggerDbPersister)
+  .to(LoggerDbPersister)
   .inSingletonScope()
 
 container
-  .bind<LoggerPersister>(TYPES.LoggerPersister)
-  .to(LoggerPersister)
+  .bind<LoggerFilePersister>(TYPES.LoggerFilePersister)
+  .to(LoggerFilePersister)
   .inSingletonScope()
 
 container // TODO Implement this

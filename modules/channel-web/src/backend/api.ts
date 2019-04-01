@@ -7,6 +7,8 @@ import multer from 'multer'
 import multers3 from 'multer-s3'
 import path from 'path'
 
+import { Config } from '../config'
+
 import Database from './db'
 
 const ERR_USER_ID_REQ = '`userId` is required and must be valid'
@@ -14,20 +16,21 @@ const ERR_MSG_TYPE = '`type` is required and must be valid'
 const ERR_CONV_ID_REQ = '`conversationId` is required and must be valid'
 
 export default async (bp: typeof sdk, db: Database) => {
+  const globalConfig = (await bp.config.getModuleConfig('channel-web')) as Config
+
   const diskStorage = multer.diskStorage({
+    destination: globalConfig.fileUploadPath,
     limits: {
       files: 1,
       fileSize: 5242880 // 5MB
     },
-    filename: function (req, file, cb) {
+    filename: function(req, file, cb) {
       const userId = _.get(req, 'params.userId') || 'anonymous'
       const ext = path.extname(file.originalname)
 
       cb(undefined, `${userId}_${new Date().getTime()}${ext}`)
     }
   })
-
-  const globalConfig = await bp.config.getModuleConfig('channel-web')
 
   let upload = multer({ storage: diskStorage })
 
@@ -59,7 +62,7 @@ export default async (bp: typeof sdk, db: Database) => {
       contentType: multers3.AUTO_CONTENT_TYPE,
       cacheControl: 'max-age=31536000', // one year caching
       acl: 'public-read',
-      key: function (req, file, cb) {
+      key: function(req, file, cb) {
         const userId = _.get(req, 'params.userId') || 'anonymous'
         const ext = path.extname(file.originalname)
 
@@ -81,9 +84,30 @@ export default async (bp: typeof sdk, db: Database) => {
     }
   }
 
+  router.get(
+    '/botInfo',
+    asyncApi(async (req, res) => {
+      const { botId } = req.params
+      const config = (await bp.config.getModuleConfigForBot('channel-web', botId)) as Config
+      const botInfo = await bp.bots.getBotById(botId)
+
+      if (!botInfo) {
+        return res.sendStatus(404)
+      }
+
+      res.send({
+        showBotInfoPage: config.showBotInfoPage,
+        name: botInfo.name,
+        description: botInfo.description,
+        details: botInfo.details
+      })
+    })
+  )
+
   // ?conversationId=xxx (optional)
   router.post(
     '/messages/:userId',
+    bp.http.extractExternalToken,
     asyncApi(async (req, res) => {
       const { botId, userId = undefined } = req.params
 
@@ -94,19 +118,30 @@ export default async (bp: typeof sdk, db: Database) => {
       await bp.users.getOrCreateUser('web', userId) // Create the user if it doesn't exist
 
       const payload = req.body || {}
+      const { timezone } = payload
+      const isValidTimezone = _.isNumber(timezone) && timezone >= -12 && timezone <= 14 && timezone % 0.5 === 0
       let { conversationId = undefined } = req.query || {}
       conversationId = conversationId && parseInt(conversationId)
 
-      if (!_.includes(['text', 'quick_reply', 'form', 'login_prompt', 'visit'], payload.type)) {
+      if (
+        !_.includes(
+          ['text', 'quick_reply', 'form', 'login_prompt', 'visit', 'request_start_conversation', 'postback'],
+          payload.type
+        )
+      ) {
         // TODO: Support files
         return res.status(400).send(ERR_MSG_TYPE)
+      }
+
+      if (timezone && isValidTimezone) {
+        await bp.users.updateAttributes('web', userId, { timezone })
       }
 
       if (!conversationId) {
         conversationId = await db.getOrCreateRecentConversation(botId, userId, { originatesFromUserMessage: true })
       }
 
-      await sendNewMessage(botId, userId, conversationId, payload)
+      await sendNewMessage(botId, userId, conversationId, payload, req.credentials)
 
       return res.sendStatus(200)
     })
@@ -116,6 +151,7 @@ export default async (bp: typeof sdk, db: Database) => {
   router.post(
     '/messages/:userId/files',
     upload.single('file'),
+    bp.http.extractExternalToken,
     asyncApi(async (req, res) => {
       const { botId = undefined, userId = undefined } = req.params || {}
 
@@ -137,14 +173,15 @@ export default async (bp: typeof sdk, db: Database) => {
         type: 'file',
         data: {
           storage: req.file.location ? 's3' : 'local',
-          url: req.file.location || undefined,
-          name: req.file.originalname,
+          url: req.file.location || req.file.path || undefined,
+          name: req.file.filename,
+          originalName: req.file.originalname,
           mime: req.file.contentType || req.file.mimetype,
           size: req.file.size
         }
       }
 
-      await sendNewMessage(botId, userId, conversationId, payload)
+      await sendNewMessage(botId, userId, conversationId, payload, req.credentials)
 
       return res.sendStatus(200)
     })
@@ -186,10 +223,13 @@ export default async (bp: typeof sdk, db: Database) => {
     return /[a-z0-9-_]+/i.test(userId)
   }
 
-  async function sendNewMessage(botId: string, userId: string, conversationId, payload) {
+  async function sendNewMessage(botId: string, userId: string, conversationId, payload, credentials: any) {
     const config = await bp.config.getModuleConfigForBot('channel-web', botId)
 
-    if (!payload.text || !_.isString(payload.text) || payload.text.length > config.maxMessageLength) {
+    if (
+      (!payload.text || !_.isString(payload.text) || payload.text.length > config.maxMessageLength) &&
+      payload.type != 'postback'
+    ) {
       throw new Error('Text must be a valid string of less than 360 chars')
     }
 
@@ -220,7 +260,8 @@ export default async (bp: typeof sdk, db: Database) => {
       payload,
       target: userId,
       threadId: conversationId,
-      type: payload.type
+      type: payload.type,
+      credentials
     })
 
     const message = await db.appendUserMessage(botId, userId, conversationId, persistedPayload)
@@ -231,10 +272,10 @@ export default async (bp: typeof sdk, db: Database) => {
 
   router.post(
     '/events/:userId',
+    bp.http.extractExternalToken,
     asyncApi(async (req, res) => {
       const { payload = undefined } = req.body || {}
       const { botId = undefined, userId = undefined } = req.params || {}
-
       await bp.users.getOrCreateUser('web', userId)
       const conversationId = await db.getOrCreateRecentConversation(botId, userId, { originatesFromUserMessage: true })
 
@@ -245,16 +286,18 @@ export default async (bp: typeof sdk, db: Database) => {
         target: userId,
         threadId: conversationId,
         type: payload.type,
-        payload
+        payload,
+        credentials: req.credentials
       })
 
       bp.events.sendEvent(event)
-      res.status(200).send({})
+      res.sendStatus(200)
     })
   )
 
   router.post(
     '/conversations/:userId/:conversationId/reset',
+    bp.http.extractExternalToken,
     asyncApi(async (req, res) => {
       const { botId, userId, conversationId } = req.params
       await bp.users.getOrCreateUser('web', userId)
@@ -264,9 +307,11 @@ export default async (bp: typeof sdk, db: Database) => {
         type: 'session_reset'
       }
 
-      await sendNewMessage(botId, userId, conversationId, payload)
-      await bp.dialog.deleteSession(userId)
-      res.status(200).send({})
+      await sendNewMessage(botId, userId, conversationId, payload, req.credentials)
+
+      const sessionId = await bp.dialog.createId({ botId, target: userId, threadId: conversationId, channel: 'web' })
+      await bp.dialog.deleteSession(sessionId)
+      res.sendStatus(200)
     })
   )
 

@@ -4,7 +4,6 @@ import fse from 'fs-extra'
 import os from 'os'
 import path from 'path'
 
-import ModuleResolver from '../../modules/resolver'
 import { GhostService } from '../ghost/service'
 
 const CHECKSUM = '//CHECKSUM:'
@@ -21,15 +20,15 @@ interface ResourceExportPath {
 }
 
 export class ModuleResourceLoader {
-  private modulePath: string = ''
   private exportPaths: ResourceExportPath[] = []
+
+  private get modulePath(): string {
+    return process.LOADED_MODULES[this.moduleName]
+  }
 
   constructor(private logger: Logger, private moduleName: string, private ghost: GhostService) {}
 
   async importResources() {
-    const resolver = new ModuleResolver(this.logger)
-    this.modulePath = await resolver.resolve('MODULES_ROOT/' + this.moduleName)
-
     this.exportPaths = [
       {
         src: `${this.modulePath}/dist/actions`,
@@ -52,18 +51,21 @@ export class ModuleResourceLoader {
     await this._loadModuleResources()
   }
 
+  private async isSymbolicLink(filePath) {
+    const fullPath = path.resolve(`${process.PROJECT_LOCATION}/${filePath}`)
+    return fse.pathExistsSync(fullPath) && (await fse.lstatSync(fullPath).isSymbolicLink())
+  }
+
   private async _loadModuleResources(): Promise<void> {
     for (const resource of this.exportPaths) {
-      if (fse.pathExistsSync(resource.src)) {
+      if (fse.pathExistsSync(resource.src) && !(await this.isSymbolicLink(resource.dest))) {
         await this._upsertModuleResources(resource)
       }
     }
   }
 
   async getBotTemplatePath(templateName: string) {
-    const resolver = new ModuleResolver(this.logger)
-    const modulePath = await resolver.resolve('MODULES_ROOT/' + this.moduleName)
-    return path.resolve(`${modulePath}/dist/bot-templates/${templateName}`)
+    return path.resolve(`${this.modulePath}/dist/bot-templates/${templateName}`)
   }
 
   private async _getHooksPaths(): Promise<ResourceExportPath[]> {
@@ -129,10 +131,10 @@ export class ModuleResourceLoader {
 
     if (firstLine.indexOf(CHECKSUM) === 0) {
       const fileContent = lines.splice(1, lines.length).join(os.EOL)
-      return this._calculateHash(fileContent) === firstLine.substring(CHECKSUM.length)
+      return this._calculateHash(fileContent) !== firstLine.substring(CHECKSUM.length)
     }
 
-    return false
+    return true
   }
 
   /**
