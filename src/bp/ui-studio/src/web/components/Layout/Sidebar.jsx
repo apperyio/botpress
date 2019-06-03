@@ -4,6 +4,7 @@ import { connect } from 'react-redux'
 import { NavLink, withRouter } from 'react-router-dom'
 import classnames from 'classnames'
 import { Collapse } from 'react-bootstrap'
+import { GoBeaker } from 'react-icons/go'
 import _ from 'lodash'
 
 import PermissionsChecker from './PermissionsChecker'
@@ -34,10 +35,10 @@ class Sidebar extends React.Component {
     nluCollapseOpen: false
   }
 
-  componentWillMount() {
+  componentDidMount() {
     const mql = window.matchMedia(`(min-width: 800px)`)
     mql.addListener(this.mediaQueryChanged)
-    this.setState({ mql: mql, sidebarDocked: mql.matches })
+    this.setState({ mql, sidebarDocked: mql.matches })
   }
 
   componentWillUnmount() {
@@ -46,16 +47,13 @@ class Sidebar extends React.Component {
 
   mediaQueryChanged = () => this.setState({ sidebarDocked: this.state.mql.matches })
 
-  toggleNluCollapse = event => {
-    event.preventDefault()
-    this.setState({ nluCollapseOpen: !this.state.nluCollapseOpen })
-  }
-
-  handleSideBarLeave = () => this.setState({ nluCollapseOpen: false })
+  showNluMenu = () => this.setState({ nluCollapseOpen: true })
+  hideNluMenu = () => this.setState({ nluCollapseOpen: false })
 
   renderModuleItem = module => {
+    const rule = { res: `module.${module.name}`, op: 'write' }
     const path = `/modules/${module.name}`
-    const iconPath = `/assets/module/${module.name}/icon.png`
+    const iconPath = `/assets/modules/${module.name}/icon.png`
     const moduleIcon =
       module.menuIcon === 'custom' ? (
         <img className={classnames(style.customIcon, 'bp-custom-icon')} src={iconPath} />
@@ -75,45 +73,54 @@ class Sidebar extends React.Component {
     // TODO: Make generic menu and submenu and use them for intents / entities ui
     if (module.name === 'nlu') {
       return (
-        <li key={`menu_module_${module.name}`}>
-          <a onClick={this.toggleNluCollapse} className={classnames(style.link, { [style.active]: isNluActive })}>
-            {moduleIcon}
-            <span>Understanding</span>
-          </a>
-          <Collapse in={this.state.nluCollapseOpen}>
-            <ul className={style.mainMenu_level2}>
-              <li className={style.mainMenu__item}>
-                <NavLink
-                  to={entitiesPath}
-                  activeClassName={style.active}
-                  title={module.menuText}
-                  className={style.mainMenu__link}
-                >
-                  <span>Entities</span>
-                </NavLink>
-              </li>
-              <li className={style.mainMenu__item}>
-                <NavLink
-                  activeClassName={style.active}
-                  to={intentsPath}
-                  title={module.menuText}
-                  className={style.mainMenu__link}
-                >
-                  <span>Intents</span>
-                </NavLink>
-              </li>
-            </ul>
-          </Collapse>
-        </li>
+        <PermissionsChecker user={this.props.user} res={rule.res} op={rule.op}>
+          <li key={`menu_module_${module.name}`}>
+            <a
+              onMouseOver={this.showNluMenu}
+              onMouseOut={this.hideNluMenu}
+              className={classnames(style.link, { [style.active]: isNluActive })}
+            >
+              {moduleIcon}
+              <span>Understanding</span>
+            </a>
+            <Collapse in={this.state.nluCollapseOpen} onMouseOver={this.showNluMenu} onMouseOut={this.hideNluMenu}>
+              <ul className={style.mainMenu_level2}>
+                <li className={style.mainMenu__item}>
+                  <NavLink
+                    to={entitiesPath}
+                    activeClassName={style.active}
+                    title={module.menuText}
+                    className={style.mainMenu__link}
+                  >
+                    <span>Entities</span>
+                  </NavLink>
+                </li>
+                <li className={style.mainMenu__item}>
+                  <NavLink
+                    activeClassName={style.active}
+                    to={intentsPath}
+                    title={module.menuText}
+                    className={style.mainMenu__link}
+                  >
+                    <span>Intents</span>
+                  </NavLink>
+                </li>
+              </ul>
+            </Collapse>
+          </li>
+        </PermissionsChecker>
       )
     } else {
       return (
-        <li key={`menu_module_${module.name}`}>
-          <NavLink to={path} title={module.menuText} activeClassName={style.active}>
-            {moduleIcon}
-            <span>{module.menuText}</span>
-          </NavLink>
-        </li>
+        <PermissionsChecker user={this.props.user} res={rule.res} op={rule.op}>
+          <li key={`menu_module_${module.name}`}>
+            <NavLink to={path} title={module.menuText} activeClassName={style.active}>
+              {moduleIcon}
+              <span>{module.menuText}</span>
+              {module.experimental && <GoBeaker className={style.experimental} />}
+            </NavLink>
+          </li>
+        </PermissionsChecker>
       )
     }
   }
@@ -133,12 +140,8 @@ class Sidebar extends React.Component {
   )
 
   render() {
-    const modules = this.props.modules
-    const moduleItems = modules.filter(x => !x.noInterface).map(this.renderModuleItem)
-    const emptyClassName = classnames(style.empty, 'bp-empty')
-
     return (
-      <aside onMouseLeave={this.handleSideBarLeave} style={{ zIndex: '1000' }}>
+      <aside style={{ zIndex: '1000' }}>
         <div className={classnames(style.sidebar, 'bp-sidebar')}>
           <div style={{ padding: '8px 13px' }}>
             <a onClick={() => window.top.location = window.location.href.replace('chatbot.', '').split('studio/')[0] + 'ai'} className={classnames(style.logo, 'bp-logo')}>
@@ -147,8 +150,8 @@ class Sidebar extends React.Component {
           </div>
           <ul className={classnames('nav', style.mainMenu)}>
             {BASIC_MENU_ITEMS.map(this.renderBasicItem)}
-            {moduleItems}
-            <li className={emptyClassName} />
+            {this.props.modules.filter(m => !m.noInterface).map(this.renderModuleItem)}
+            <li className={classnames(style.empty, 'bp-empty')} />
           </ul>
         </div>
         {this.props.children}

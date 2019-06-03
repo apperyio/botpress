@@ -1,4 +1,8 @@
 {
+  "locked": false,
+  "disabled": false,
+  "private": false,
+  "details": {},
   "$schema": "../../bot.config.schema.json",
   "description": "Empty bot",
   "active": true,
@@ -10,11 +14,13 @@
     "incomingMiddleware": [],
     "outgoingMiddleware": [],
     "contentTypes": [
-      "builtin_text",
-      "builtin_single-choice",
-      "builtin_image",
+      "builtin_action-button",
+      "builtin_card",
       "builtin_carousel",
-      "builtin_card"
+      "builtin_image",
+      "builtin_single-choice",
+      "builtin_text",
+      "dropdown"
     ]
   },
   "dialog": {
@@ -23,7 +29,18 @@
   "logs": {
     "expiration": "1 week"
   },
+  "defaultLanguage": "en",
+  "languages": [
+    "en"
+  ],
   "id": "emptychatbot",
   "name": "emptychatbot",
-  "category": null
+  "category": null,
+  "pipeline_status": {
+    "current_stage": {
+      "id": "prod",
+      "promoted_on": "2019-05-30T10:50:53.803Z",
+      "promoted_by": "admin.chatbot@appery.io"
+    }
+  }
 }

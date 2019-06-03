@@ -19,6 +19,7 @@ export interface Workspace {
   defaultRole: string
   adminRole: string
   bots: string[]
+  pipeline: Pipeline
 }
 
 export interface AuthConfig {
@@ -57,7 +58,11 @@ export interface AuthUser {
   provider?: string
   last_logon?: Date
   created_on?: Date
+  locked_out?: boolean
   password_expired?: boolean
+  password_expiry_date?: Date
+  unsuccessful_logins?: number
+  last_login_attempt?: Date | undefined
 }
 
 export interface AuthRule {
@@ -95,4 +100,14 @@ export interface Bot {
   license?: string
   created_at: string
   updated_at: string
+}
+
+export type Pipeline = Stage[]
+
+export type StageAction = 'promote_copy' | 'promote_move'
+
+export interface Stage {
+  id: string
+  label: string
+  action: StageAction
 }

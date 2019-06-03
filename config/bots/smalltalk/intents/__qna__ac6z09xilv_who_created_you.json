@@ -1,8 +1,10 @@
 {
   "name": "__qna__ac6z09xilv_who_created_you",
+  "filename": "__qna__ac6z09xilv_who_created_you.json",
   "contexts": [
     "global"
   ],
+  "entities": [],
   "utterances": [
     "who created you?",
     "who's your creator?",
@@ -11,6 +13,5 @@
     "who is your father?",
     "who are your parents?",
     "your creator?"
-  ],
-  "slots": []
+  ]
 }

@@ -1,4 +1,8 @@
 {
+  "locked": false,
+  "disabled": false,
+  "private": false,
+  "details": {},
   "$schema": "../../bot.config.schema.json",
   "description": "Small Talk",
   "active": true,
@@ -10,11 +14,13 @@
     "incomingMiddleware": [],
     "outgoingMiddleware": [],
     "contentTypes": [
-      "builtin_text",
-      "builtin_single-choice",
-      "builtin_image",
+      "builtin_action-button",
+      "builtin_card",
       "builtin_carousel",
-      "builtin_card"
+      "builtin_image",
+      "builtin_single-choice",
+      "builtin_text",
+      "dropdown"
     ]
   },
   "dialog": {
@@ -23,7 +29,18 @@
   "logs": {
     "expiration": "1 week"
   },
+  "defaultLanguage": "en",
+  "languages": [
+    "en"
+  ],
   "id": "smalltalk",
   "name": "smalltalk",
-  "category": null
+  "category": null,
+  "pipeline_status": {
+    "current_stage": {
+      "id": "prod",
+      "promoted_on": "2019-05-30T10:51:21.980Z",
+      "promoted_by": "admin.chatbot@appery.io"
+    }
+  }
 }

@@ -12,18 +12,8 @@ import path from 'path'
 
 import { BotpressConfig } from './botpress.config'
 
-export interface ConfigProvider {
-  createDefaultConfigIfMissing(): Promise<void>
-  getBotpressConfig(): Promise<BotpressConfig>
-  mergeBotpressConfig(partialConfig: PartialDeep<BotpressConfig>): Promise<void>
-  getBotConfig(botId: string): Promise<BotConfig>
-  setBotConfig(botId: string, config: BotConfig): Promise<void>
-  getModulesListConfig(): Promise<any>
-  invalidateBotpressConfig(): Promise<void>
-}
-
 @injectable()
-export class GhostConfigProvider implements ConfigProvider {
+export class ConfigProvider {
   private _botpressConfigCache: BotpressConfig | undefined
 
   constructor(
@@ -72,6 +62,13 @@ export class GhostConfigProvider implements ConfigProvider {
     await this.ghostService.forBot(botId).upsertFile('/', 'bot.config.json', JSON.stringify(config, undefined, 2))
   }
 
+  async mergeBotConfig(botId: string, partialConfig: PartialDeep<BotConfig>): Promise<BotConfig> {
+    const originalConfig = await this.getBotConfig(botId)
+    const config = _.merge(originalConfig, partialConfig)
+    await this.setBotConfig(botId, config)
+    return config
+  }
+
   public async createDefaultConfigIfMissing() {
     const botpressConfig = path.resolve(process.PROJECT_LOCATION, 'data', 'global', 'botpress.config.json')
 
@@ -108,7 +105,17 @@ export class GhostConfigProvider implements ConfigProvider {
   }
 
   public async getModulesListConfig() {
-    const enabledByDefault = ['analytics', 'basic-skills', 'builtin', 'channel-web', 'nlu', 'qna']
+    const enabledByDefault = [
+      'analytics',
+      'basic-skills',
+      'builtin',
+      'channel-web',
+      'nlu',
+      'qna',
+      'extensions',
+      'code-editor',
+      'testing'
+    ]
 
     // here it's ok to use the module resolver because we are discovering the built-in modules only
     const resolver = new ModuleResolver(this.logger)

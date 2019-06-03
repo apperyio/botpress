@@ -7,6 +7,10 @@
     "bodyLimit": "100kb",
     "cors": {
       "enabled": true
+    },
+    "session": {
+      "enabled": false,
+      "maxAge": "1h"
     }
   },
   "dialog": {
@@ -15,8 +19,15 @@
     "sessionTimeoutInterval": "30m"
   },
   "logs": {
-    "expiration": "2 weeks",
-    "janitorInterval": "30s"
+    "dbOutput": {
+      "expiration": "2 weeks",
+      "janitorInterval": "30s"
+    },
+    "fileOutput": {
+      "enabled": false,
+      "folder": "./",
+      "maxFileSize": 10000
+    }
   },
   "modules": [
     {
@@ -32,8 +43,28 @@
       "enabled": true
     },
     {
+      "location": "MODULES_ROOT/channel-messenger",
+      "enabled": false
+    },
+    {
+      "location": "MODULES_ROOT/channel-telegram",
+      "enabled": false
+    },
+    {
       "location": "MODULES_ROOT/channel-web",
       "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/code-editor",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/extensions",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/hitl",
+      "enabled": false
     },
     {
       "location": "MODULES_ROOT/nlu",
@@ -41,6 +72,10 @@
     },
     {
       "location": "MODULES_ROOT/qna",
+      "enabled": true
+    },
+    {
+      "location": "MODULES_ROOT/testing",
       "enabled": true
     }
   ],
@@ -51,6 +86,26 @@
       "strategy": "basic",
       "fieldMapping": {},
       "allowSelfSignup": false
+    },
+    "monitoring": {
+      "enabled": false,
+      "collectionInterval": "10s",
+      "retentionPeriod": "10d",
+      "janitorInterval": "15m"
+    },
+    "alerting": {
+      "enabled": false,
+      "watcherInterval": "10s",
+      "retentionPeriod": "10d",
+      "janitorInterval": "15m",
+      "rules": []
+    },
+    "externalAuth": {
+      "enabled": false,
+      "algorithms": [
+        "HS256"
+      ],
+      "publicKey": "insert key here"
     }
   },
   "superAdmins": [
@@ -61,5 +116,21 @@
     "janitorInterval": "10m",
     "policies": {}
   },
-  "jwtSecret": "tj5dXfXeUIn_LB8ti9SAYChT0LyVGRhSVGn8BeY_"
+  "botCategories": [],
+  "allowServerReboot": true,
+  "fileUpload": {
+    "maxFileSize": 10,
+    "allowedMimeTypes": [
+      "image/jpeg",
+      "image/png",
+      "image/gif"
+    ]
+  },
+  "jwtToken": {
+    "duration": "12h",
+    "allowRefresh": true
+  },
+  "autoRevision": false,
+  "version": "11.9.0",
+  "appSecret": "tj5dXfXeUIn_LB8ti9SAYChT0LyVGRhSVGn8BeY_"
 }

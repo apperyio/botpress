@@ -8,13 +8,14 @@
   "imports": {
     "modules": [],
     "incomingMiddleware": [],
-    "outgoingMiddleware": [],
-    "contentTypes": ["builtin_text", "builtin_single-choice", "builtin_image", "builtin_carousel", "builtin_card"]
+    "outgoingMiddleware": []
   },
   "dialog": {
     "timeoutInterval": "5m"
   },
   "logs": {
     "expiration": "1 week"
-  }
+  },
+  "defaultLanguage": "en",
+  "languages": ["en"]
 }

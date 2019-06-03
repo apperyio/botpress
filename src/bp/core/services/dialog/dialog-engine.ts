@@ -16,7 +16,7 @@ const debug = DEBUG('dialog')
 
 @injectable()
 export class DialogEngine {
-  public onProcessingError: ((err: ProcessingError) => void) | undefined
+  public onProcessingError: ((err: ProcessingError, hideStack: boolean) => void) | undefined
 
   private _flowsByBot: Map<string, FlowView[]> = new Map()
 
@@ -159,6 +159,7 @@ export class DialogEngine {
 
     event.state.context.currentNode = timeoutNode.name
     event.state.context.currentFlow = timeoutFlow.name
+    event.state.context.queue = undefined
     event.state.context.hasJumped = true
 
     return await this.processEvent(sessionId, event)
@@ -188,8 +189,16 @@ export class DialogEngine {
         currentFlow: flow.name,
         currentNode: startNode.name,
         // We keep a reference of the previous flow so we can return to it later on.
+        // TODO: drop previousFlow/previousNode in favor of jumpPoints
         previousFlow: event.state.context.currentFlow,
-        previousNode: event.state.context.currentNode
+        previousNode: event.state.context.currentNode,
+        jumpPoints: [
+          ...(event.state.context.jumpPoints || []),
+          {
+            flow: event.state.context.currentFlow,
+            node: event.state.context.currentNode
+          }
+        ]
       }
 
       this._logEnterFlow(
@@ -202,14 +211,16 @@ export class DialogEngine {
       )
     } else if (transitionTo.indexOf('#') === 0) {
       // Return to the parent node (coming from a flow)
-      const parentFlow = this._findFlow(event.botId, event.state.context.previousFlow!)
+      const jumpPoints = event.state.context.jumpPoints
+      const prevJumpPoint = jumpPoints && jumpPoints.pop()
+      const parentFlow = this._findFlow(event.botId, prevJumpPoint.flow)
       const specificNode = transitionTo.split('#')[1]
       let parentNode
 
       if (specificNode) {
         parentNode = this._findNode(event.botId, parentFlow, specificNode)
       } else {
-        parentNode = this._findNode(event.botId, parentFlow, event.state.context.previousNode!)
+        parentNode = this._findNode(event.botId, parentFlow, prevJumpPoint.node)
       }
 
       const builder = new InstructionsQueueBuilder(parentNode, parentFlow)
@@ -219,6 +230,7 @@ export class DialogEngine {
         ...context,
         currentNode: parentNode.name,
         currentFlow: parentFlow.name,
+        jumpPoints,
         queue
       }
 
@@ -264,7 +276,14 @@ export class DialogEngine {
       currentFlow: subflow.name,
       currentNode: subflowStartNode.name,
       previousFlow: parentFlow.name,
-      previousNode: parentNode.name
+      previousNode: parentNode.name,
+      jumpPoints: [
+        ...(event.state.context.jumpPoints || []),
+        {
+          flow: parentFlow.name,
+          node: parentNode.name
+        }
+      ]
     }
 
     return this.processEvent(sessionId, event)
@@ -301,7 +320,10 @@ export class DialogEngine {
     const flowName = _.get(event, 'state.context.currentFlow', 'N/A')
     const instructionDetails = instruction.fn || instruction.type
     this.onProcessingError &&
-      this.onProcessingError(new ProcessingError(error.message, botId, nodeName, flowName, instructionDetails))
+      this.onProcessingError(
+        new ProcessingError(error.message, botId, nodeName, flowName, instructionDetails),
+        error.hideStack
+      )
   }
 
   private _logDebug(botId: string, target: string, action: string, args?: any) {

@@ -67,24 +67,42 @@ declare module 'botpress/sdk' {
     error(message: string, metadata?: any): void
   }
 
+  export type ElementChangedAction = 'create' | 'update' | 'delete'
+
   /**
    * The Module Entry Point is used by the module loader to bootstrap the module. It must be present in the index.js file
    * of the module. The path to the module must also be specified in the global botpress config.
    */
   export interface ModuleEntryPoint {
-    /** Called once the core is initialized. Usually for middlewares / database init */
-    onServerStarted: ((bp: typeof import('botpress/sdk')) => void)
-    /** This is called once all modules are initialized, usually for routing and logic */
-    onServerReady: ((bp: typeof import('botpress/sdk')) => void)
-    onBotMount?: ((bp: typeof import('botpress/sdk'), botId: string) => void)
-    onBotUnmount?: ((bp: typeof import('botpress/sdk'), botId: string) => void)
     /** Additional metadata about the module */
     definition: ModuleDefinition
     /** An array of the flow generators used by skills in the module */
     skills?: Skill[]
     /** An array of available bot templates when creating a new bot */
     botTemplates?: BotTemplate[]
-    onFlowChanged?: ((bp: typeof import('botpress/sdk'), botId: string, flow: Flow) => void)
+    /** Called once the core is initialized. Usually for middlewares / database init */
+    onServerStarted: (bp: typeof import('botpress/sdk')) => void
+    /** This is called once all modules are initialized, usually for routing and logic */
+    onServerReady: (bp: typeof import('botpress/sdk')) => void
+    onBotMount?: (bp: typeof import('botpress/sdk'), botId: string) => void
+    onBotUnmount?: (bp: typeof import('botpress/sdk'), botId: string) => void
+    /**
+     * Called when the module is unloaded, before being reloaded
+     * onBotUnmount is called for each bots before this one is called
+     */
+    onModuleUnmount?: (bp: typeof import('botpress/sdk')) => void
+    onFlowChanged?: (bp: typeof import('botpress/sdk'), botId: string, flow: Flow) => void
+    /**
+     * This method is called whenever a content element is created, updated or deleted.
+     * Modules can act on these events if they need to update references, for example.
+     */
+    onElementChanged?: (
+      bp: typeof import('botpress/sdk'),
+      botId: string,
+      action: ElementChangedAction,
+      element: ContentElement,
+      oldElement?: ContentElement
+    ) => void
   }
 
   /**
@@ -118,6 +136,8 @@ declare module 'botpress/sdk' {
     menuText?: string
     /** Optionnaly specify a link to your page or github repo */
     homepage?: string
+    /** Whether or not the module is likely to change */
+    experimental?: boolean
   }
 
   /**
@@ -275,7 +295,8 @@ declare module 'botpress/sdk' {
 
     export interface SlotDefinition {
       name: string
-      entity: string
+      entities: string[]
+      entity?: string
     }
 
     export interface IntentDefinition {
@@ -372,6 +393,8 @@ declare module 'botpress/sdk' {
       readonly payload: any
       /** A textual representation of the event */
       readonly preview: string
+      /** The date the event was created */
+      readonly createdOn: Date
       readonly credentials?: any
       /**
        * Check if the event has a specific flag
@@ -463,6 +486,13 @@ declare module 'botpress/sdk' {
       context: DialogContext
     }
 
+    export interface JumpPoint {
+      /** The name of the previous flow to return to when we exit a subflow */
+      flow: string
+      /** The name of the previous node to return to when we exit a subflow */
+      node: string
+    }
+
     export interface DialogContext {
       /** The name of the previous flow to return to when we exit a subflow */
       previousFlow?: string
@@ -472,6 +502,8 @@ declare module 'botpress/sdk' {
       currentNode?: string
       /** The name of the current active flow */
       currentFlow?: string
+      /** An array of jump-points to return when we exit subflow */
+      jumpPoints?: JumpPoint[]
       /** The instructions queue to be processed by the dialog engine */
       queue?: any
       /**
@@ -483,9 +515,25 @@ declare module 'botpress/sdk' {
 
     export interface CurrentSession {
       lastMessages: DialogTurnHistory[]
+      nluContexts?: NluContext[]
+    }
+
+    /**
+     * They represent the contexts that will be used by the NLU Engine for the next messages for that chat session.
+     *
+     * The TTL (Time-To-Live) represents how long the contexts will be valid before they are automatically removed.
+     * For example, the default value of `1` will listen for that context only once (the next time the user speaks).
+     *
+     * If a context was already present in the list, the higher TTL will win.
+     */
+    export interface NluContext {
+      context: string
+      /** Represent the number of turns before the context is removed from the session */
+      ttl: number
     }
 
     export interface DialogTurnHistory {
+      eventId: string
       incomingPreview: string
       replySource: string
       replyPreview: string
@@ -585,6 +633,7 @@ declare module 'botpress/sdk' {
      * To stop listening, call the `remove()` method of the returned ListenHandle
      */
     onFileChanged(callback: (filePath: string) => void): ListenHandle
+    fileExists(rootFolder: string, file: string): Promise<boolean>
   }
 
   export interface ListenHandle {
@@ -612,6 +661,36 @@ declare module 'botpress/sdk' {
     }
     dialog?: DialogConfig
     logs?: LogsConfig
+    defaultLanguage: string
+    languages: string[]
+    locked: boolean
+    pipeline_status: BotPipelineStatus
+  }
+
+  export type Pipeline = Stage[]
+
+  export type StageAction = 'promote_copy' | 'promote_move'
+
+  export interface Stage {
+    id: string
+    label: string
+    action: StageAction
+  }
+
+  export interface BotPipelineStatus {
+    current_stage: {
+      promoted_by: string
+      promoted_on: Date
+      id: string
+    }
+    stage_request?: {
+      requested_on: Date
+      expires_on?: Date
+      message?: string
+      status: string
+      requested_by: string
+      id: string
+    }
   }
 
   export interface BotDetails {
@@ -643,8 +722,8 @@ declare module 'botpress/sdk' {
     formData: object
     /** The computed form data that contains the interpreted data. */
     computedData: object
-    /** The textual representation of the Content Element.  */
-    previewText: string
+    /** The textual representation of the Content Element, for each supported languages  */
+    previews: object
     createdOn: Date
     modifiedOn: Date
     createdBy: string
@@ -915,6 +994,13 @@ declare module 'botpress/sdk' {
     export function createRouterForBot(routerName: string, options?: RouterOptions): any & RouterExtension
 
     /**
+     * This method is meant to unregister a router before unloading a module. It is meant to be used in a development environment.
+     * It could cause unpredictable behaviour in production
+     * @param routerName The name of the router (must have been registered with createRouterForBot)
+     */
+    export function deleteRouterForBot(routerName: string)
+
+    /**
      * Returns the required configuration to make an API call to another module by specifying only the relative path.
      * @param botId - The ID of the bot for which to get the configuration
      * @returns The configuration to use
@@ -950,6 +1036,9 @@ declare module 'botpress/sdk' {
      */
     export function registerMiddleware(middleware: IO.MiddlewareDefinition): void
 
+    /** Removes the specified middleware from the chain. This is mostly used in case of a module being reloaded */
+    export function removeMiddleware(middlewareName): void
+
     /**
      * Send an event through the incoming or outgoing middleware chain
      * @param event - The event to send
@@ -979,9 +1068,14 @@ declare module 'botpress/sdk' {
     export function getOrCreateUser(channel: string, userId: string): GetOrCreateResult<User>
 
     /**
-     * Update attributes of a specific user
+     * Merge the specified attributes to the existing attributes of the user
      */
     export function updateAttributes(channel: string, userId: string, attributes: any): Promise<void>
+
+    /**
+     * Overwrite all the attributes of the user with the specified payload
+     */
+    export function setAttributes(channel: string, userId: string, attributes: any): Promise<void>
     export function getAllUsers(paging?: Paging): Promise<any>
     export function getUserCount(): Promise<any>
   }
@@ -1065,6 +1159,18 @@ declare module 'botpress/sdk' {
   export namespace bots {
     export function getAllBots(): Promise<Map<string, BotConfig>>
     export function getBotById(botId: string): Promise<BotConfig | undefined>
+    /**
+     * It will extract the bot's folder to an archive (tar.gz).
+     * @param botId The ID of the bot to extract
+     */
+    export function exportBot(botId: string): Promise<Buffer>
+    /**
+     * Allows to import directly an archive (tar.gz) in a new bot.
+     * @param botId The ID of the new bot (or an existing one)
+     * @param archive The buffer of the archive file
+     * @param allowOverwrite? If not set, it will throw an error if the folder exists. Otherwise, it will overwrite files already present
+     */
+    export function importBot(botId: string, archive: Buffer, allowOverwrite?: boolean): Promise<void>
   }
 
   export namespace notifications {
@@ -1088,17 +1194,28 @@ declare module 'botpress/sdk' {
      * Returns a single Content Element
      * @param botId - The ID of the bot
      * @param id - The element id
+     * @param language - If language is set, it will return only the desired language with the base properties
      * @returns A content element
      */
-    export function getContentElement(botId: string, id: string): Promise<ContentElement>
+    export function getContentElement(botId: string, id: string, language?: string): Promise<ContentElement>
 
-    export function getContentElements(botId: string, ids: string[]): Promise<ContentElement[]>
+    export function getContentElements(botId: string, ids: string[], language?: string): Promise<ContentElement[]>
 
+    /**
+     *
+     * @param botId The ID of the bot
+     * @param contentTypeId Filter entries on that specific content type
+     * @param searchParams Additional search parameters (by default, returns 50 elements)
+     * @param language When specified, only that language is returned with the original property (ex: text$en becomes text)
+     */
     export function listContentElements(
       botId: string,
       contentTypeId?: string,
-      searchParams?: SearchParams
+      searchParams?: SearchParams,
+      language?: string
     ): Promise<ContentElement[]>
+
+    export function deleteContentElements(botId: string, contentElementIds: string[]): Promise<void>
 
     export function getAllContentTypes(botId?: string): Promise<ContentType[]>
     /**
@@ -1122,15 +1239,49 @@ declare module 'botpress/sdk' {
       eventDestination: IO.EventDestination
     ): Promise<object[]>
 
+    /**
+     * Updates an existing content element, or creates it if its current ID isn't defined
+     *
+     * @param botId The ID of the bot
+     * @param contentTypeId Only used when creating an element (the ID of the content type (renderer))
+     * @param formData The content of your element. May includes translations or not (see language parameter)
+     * @param contentElementId If not specified, will be treated as a new element and will be inserted
+     * @param language When language is set, only that language will be updated on this element. Otherwise, replaces all content
+     */
     export function createOrUpdateContentElement(
       botId: string,
       contentTypeId: string,
-      formData: string,
-      contentElementId?: string
+      formData: object,
+      contentElementId?: string,
+      language?: string
     ): Promise<string>
 
     export function saveFile(botId: string, fileName: string, content: Buffer): Promise<string>
     export function readFile(botId, fileName): Promise<Buffer>
     export function getFilePath(botId: string, fileName: string): string
+
+    /**
+     * Mustache template to render. Can contain objects, arrays, strings.
+     * @example '{{en}}', ['{{nested.de}}'], {notSoNested: '{{fr}}'}
+     */
+    export type TemplateItem = Object | Object[] | string[] | string
+
+    /**
+     * Render a template using Mustache template rendering.
+     * Use recursive template rendering to extract nexted templates.
+     *
+     * @param item TemplateItem to render
+     * @param context Variables to use for the template rendering
+     */
+    export function renderTemplate(item: TemplateItem, context): TemplateItem
+  }
+
+  /**
+   * These features are subject to change and should not be relied upon.
+   * They will eventually be either removed or moved in another namespace
+   */
+  export namespace experimental {
+    export function disableHook(hookName: string, hookType: string, moduleName?: string): Promise<boolean>
+    export function enableHook(hookName: string, hookType: string, moduleName?: string): Promise<boolean>
   }
 }

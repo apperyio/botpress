@@ -11,6 +11,8 @@ import { MdKeyboardArrowUp, MdKeyboardArrowDown } from 'react-icons/lib/md'
 import _ from 'lodash'
 
 import { fetchBots, fetchBotCategories } from '../../reducers/bots'
+import { fetchLicensing } from '../../reducers/license'
+import { fetchLanguages } from '../../reducers/server'
 
 import SectionLayout from '../Layouts/Section'
 
@@ -36,12 +38,22 @@ class Bots extends Component {
     emailAddress: '',
     error: undefined,
     categories: [],
-    moreOpen: false
+    moreOpen: false,
+    languages: [],
+    defaultLanguage: undefined
   }
 
   componentDidMount() {
     if (!this.props.botCategoriesFetched) {
       this.props.fetchBotCategories()
+    }
+
+    if (!this.props.licensing) {
+      this.props.fetchLicensing()
+    }
+
+    if (!this.props.languages) {
+      this.props.fetchLanguages()
     }
 
     this.props.fetchBots()
@@ -55,6 +67,9 @@ class Bots extends Component {
     if (prevProps.botCategories !== this.props.botCategories) {
       this.prepareCategories()
     }
+    if (prevProps.languages !== this.props.languages) {
+      this.updateLanguages()
+    }
   }
 
   prepareCategories = () => {
@@ -63,35 +78,62 @@ class Bots extends Component {
     }
   }
 
-  loadBot() {
-    const botId = this.props.match.params.botId
-    const bot = this.props.bots.find(bot => bot.id === botId)
-    const status = bot.disabled ? 'disabled' : bot.private ? 'private' : 'public'
-    const details = _.get(bot, 'details', {})
+  updateLanguages = () => {
+    if (!this.props.languages) {
+      return
+    }
+
+    const languagesList = this.props.languages.map(lang => ({
+      label: lang.name,
+      value: lang.code
+    }))
 
     this.setState({
-      botId,
-      name: bot.name,
-      description: bot.description,
-      website: details.website,
-      phoneNumber: details.phoneNumber,
-      termsConditions: details.termsConditions,
-      privacyPolicy: details.privacyPolicy,
-      emailAddress: details.emailAddress,
-      status: statusList.find(x => x.value === status),
-      category: this.state.categories.find(x => x.value === bot.category),
-      avatarUrl: details.avatarUrl || '',
-      coverPictureUrl: details.coverPictureUrl || ''
+      languagesList,
+      selectedLanguages: languagesList.filter(x => (this.state.languages || []).includes(x.value)),
+      selectedDefaultLang: languagesList.find(x => x.value === this.state.defaultLanguage)
     })
+  }
+
+  loadBot() {
+    const botId = this.props.match.params.botId
+    this.bot = this.props.bots.find(bot => bot.id === botId)
+
+    const status = this.bot.disabled ? 'disabled' : this.bot.private ? 'private' : 'public'
+    const details = _.get(this.bot, 'details', {})
+
+    this.setState(
+      {
+        botId,
+        name: this.bot.name,
+        description: this.bot.description,
+        languages: this.bot.languages || [],
+        defaultLanguage: this.bot.defaultLanguage,
+        website: details.website,
+        phoneNumber: details.phoneNumber,
+        termsConditions: details.termsConditions,
+        privacyPolicy: details.privacyPolicy,
+        emailAddress: details.emailAddress,
+        status: statusList.find(x => x.value === status),
+        category: this.state.categories.find(x => x.value === this.bot.category),
+        avatarUrl: details.avatarUrl || '',
+        coverPictureUrl: details.coverPictureUrl || ''
+      },
+      this.updateLanguages
+    )
   }
 
   saveChanges = async () => {
     this.setState({ error: undefined })
 
+    const { selectedLanguages, selectedDefaultLang, category } = this.state
+
     const bot = {
       name: this.state.name,
       description: this.state.description,
-      category: this.state.category && this.state.category.value,
+      category: category && category.value,
+      defaultLanguage: selectedDefaultLang && selectedDefaultLang.value,
+      languages: selectedLanguages && selectedLanguages.map(x => x.value),
       details: {
         website: this.state.website,
         phoneNumber: this.state.phoneNumber,
@@ -104,12 +146,8 @@ class Bots extends Component {
     }
 
     const status = this.state.status && this.state.status.value
-    if (status === 'disabled') {
-      bot.disabled = true
-    } else {
-      bot.disabled = false
-      bot.private = status === 'private'
-    }
+    bot.disabled = status === 'disabled' && bot.defaultLanguage === this.bot.defaultLanguage //force enable if language changed
+    bot.private = status === 'private'
 
     const { error } = Joi.validate(bot, BotEditSchema)
     if (error) {
@@ -152,6 +190,33 @@ class Bots extends Component {
   handleStatusChanged = status => this.setState({ status })
   handleCategoryChanged = category => this.setState({ category })
 
+  handleDefaultLangChanged = lang => {
+    if (!this.state.selectedDefaultLang) {
+      this.setState({ selectedDefaultLang: lang })
+      return
+    }
+
+    if (this.state.selectedDefaultLang !== lang) {
+      const conf = window.confirm(
+        `Are you sure you want to change the language of your bot from ${this.state.selectedDefaultLang.label} to ${
+          lang.label
+        }? All of your content elements will be copied, make sure you translate them.`
+      )
+
+      if (conf) {
+        this.setState({ selectedDefaultLang: lang })
+      }
+    }
+  }
+
+  handleLanguagesChanged = langs => {
+    this.setState({ selectedLanguages: langs })
+  }
+
+  handleCommunityLanguageChanged = lang => {
+    this.setState({ selectedDefaultLang: lang, selectedLanguages: [lang] })
+  }
+
   handleImageFileChanged = async event => {
     const targetProp = event.target.name
     if (!event.target.files) {
@@ -181,6 +246,59 @@ class Bots extends Component {
       .catch(err => {
         this.setState({ error: err })
       })
+  }
+
+  renderLanguages = () => {
+    if (this.props.licensing && this.props.licensing.isPro) {
+      return (
+        <Row>
+          <Col md={6}>
+            <FormGroup>
+              <Label for="sup-lang">
+                <strong>Supported Languages</strong>
+                {this.renderHelp('Your bot can support different languages, select desired languages', 'sup-lang')}
+              </Label>
+              <Select
+                options={this.state.languagesList}
+                isMulti
+                value={this.state.selectedLanguages}
+                onChange={this.handleLanguagesChanged}
+              />
+            </FormGroup>
+          </Col>
+          <Col md={6}>
+            <FormGroup>
+              <Label>
+                <strong>Default language</strong>
+                {this.renderHelp(
+                  'Choose the default language for your bot. First of supported language is picked by default.',
+                  'def-lang'
+                )}
+              </Label>
+              <Select
+                options={this.state.languagesList}
+                value={this.state.selectedDefaultLang}
+                onChange={this.handleDefaultLangChanged}
+              />
+            </FormGroup>
+          </Col>
+        </Row>
+      )
+    } else {
+      return (
+        <FormGroup>
+          <Label for="sup-lang">
+            <strong>Language</strong>
+            {this.renderHelp('Choose desired language among those', 'sup-lang')}
+          </Label>
+          <Select
+            options={this.state.languagesList}
+            value={this.state.selectedLanguages}
+            onChange={this.handleCommunityLanguageChanged}
+          />
+        </FormGroup>
+      )
+    }
   }
 
   renderDetails() {
@@ -242,6 +360,7 @@ class Bots extends Component {
               onChange={this.handleInputChanged}
             />
           </FormGroup>
+          {this.renderLanguages()}
         </Form>
 
         {this.renderCollapsible()}
@@ -313,7 +432,7 @@ class Bots extends Component {
         </Row>
         <small>
           These informations are displayed on the Bot Information page,{' '}
-          <a href="https://botpress.io/docs/tutorials/webchat-embedding" target="_blank">
+          <a href="https://botpress.io/docs/tutorials/webchat-embedding" target="_blank" rel="noopener noreferrer">
             check the documentation for more details
           </a>
         </small>
@@ -331,7 +450,7 @@ class Bots extends Component {
             </Label>
             <Input type="file" accept="image/*" name="avatarUrl" onChange={this.handleImageFileChanged} />
           </Col>
-          <Col md={4}>{this.state.avatarUrl && <img height={75} src={this.state.avatarUrl} />}</Col>
+          <Col md={4}>{this.state.avatarUrl && <img height={75} alt="avatar" src={this.state.avatarUrl} />}</Col>
         </Row>
         <Row>
           <Col md={4}>
@@ -340,7 +459,9 @@ class Bots extends Component {
             </Label>
             <Input type="file" accept="image/*" name="coverPictureUrl" onChange={this.handleImageFileChanged} />
           </Col>
-          <Col md={8}>{this.state.coverPictureUrl && <img width="100%" src={this.state.coverPictureUrl} />}</Col>
+          <Col md={8}>
+            {this.state.coverPictureUrl && <img width="100%" alt="cover" src={this.state.coverPictureUrl} />}
+          </Col>
         </Row>
       </Fragment>
     )
@@ -387,7 +508,7 @@ class Bots extends Component {
   render() {
     return (
       <SectionLayout
-        title={this.state.name}
+        title={this.state.name || this.state.botId}
         helpText="This page shows the details you can configure for a desired bot."
         activePage="bots"
         currentTeam={this.props.team}
@@ -405,12 +526,16 @@ class Bots extends Component {
 const mapStateToProps = state => ({
   bots: state.bots.bots,
   botCategories: state.bots.botCategories,
-  botCategoriesFetched: state.bots.botCategoriesFetched
+  botCategoriesFetched: state.bots.botCategoriesFetched,
+  licensing: state.license.licensing,
+  languages: state.server.languages
 })
 
 const mapDispatchToProps = {
   fetchBots,
-  fetchBotCategories
+  fetchBotCategories,
+  fetchLicensing,
+  fetchLanguages
 }
 
 export default connect(

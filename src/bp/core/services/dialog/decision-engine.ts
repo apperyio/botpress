@@ -20,6 +20,7 @@ export class DecisionEngine {
   public onBeforeSuggestionsElection:
     | ((sessionId: string, event: IO.IncomingEvent, suggestions: IO.Suggestion[]) => Promise<void>)
     | undefined
+  public onAfterEventProcessed: ((event) => Promise<void>) | undefined
 
   constructor(
     @inject(TYPES.Logger)
@@ -79,6 +80,8 @@ export class DecisionEngine {
           }
         })
         const processedEvent = await this.dialogEngine.processEvent(sessionId, event)
+        this.onAfterEventProcessed && (await this.onAfterEventProcessed(processedEvent))
+
         await this.stateManager.persist(processedEvent, false)
         return
       } catch (err) {
@@ -134,6 +137,7 @@ export class DecisionEngine {
       await this.eventEngine.replyToEvent(event, payloads)
 
       const message: IO.DialogTurnHistory = {
+        eventId: event.id,
         replyDate: new Date(),
         replySource: reply.source + ' ' + reply.sourceDetails,
         incomingPreview: event.preview,
@@ -143,6 +147,7 @@ export class DecisionEngine {
 
       result.executeFlows = false
       event.state.session.lastMessages.push(message)
+
       await this.stateManager.persist(event, true)
     }
 
@@ -150,6 +155,10 @@ export class DecisionEngine {
     if (redirect && redirect.flow && redirect.node) {
       await this.dialogEngine.jumpTo(sessionId, event, redirect.flow, redirect.node)
       result.executeFlows = true
+    }
+
+    if (!result.executeFlows) {
+      this.onAfterEventProcessed && (await this.onAfterEventProcessed(event))
     }
 
     return result

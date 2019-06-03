@@ -3,7 +3,6 @@ import { bindActionCreators } from 'redux'
 import { connect } from 'react-redux'
 import { HotKeys } from 'react-hotkeys'
 
-import classnames from 'classnames'
 import { ToastContainer } from 'react-toastify'
 import { Route, Switch, Redirect } from 'react-router-dom'
 
@@ -26,17 +25,18 @@ import { viewModeChanged, updateDocumentationModal } from '~/actions'
 import { isInputFocused } from '~/keyboardShortcuts'
 
 import layout from './Layout.styl'
-import style from './style.scss'
 import StatusBar from './StatusBar'
 
 class Layout extends React.Component {
   state = {
-    emulatorOpen: false
+    emulatorOpen: false,
+    langSwitcherOpen: false
   }
 
   componentDidMount() {
     this.botpressVersion = window.BOTPRESS_VERSION
     this.botName = window.BOT_NAME
+    this.botId = window.BOT_ID
 
     const viewMode = this.props.location.query && this.props.location.query.viewMode
 
@@ -65,20 +65,23 @@ class Layout extends React.Component {
     }
   }
 
+  toggleLangSwitcher = () => {
+    if (!isInputFocused()) {
+      this.setState({
+        langSwitcherOpen: !this.state.langSwitcherOpen
+      })
+    }
+  }
+
   render() {
     if (this.props.viewMode < 0) {
       return null
     }
 
-    const hasHeader = this.props.viewMode <= 2
-    const classNames = classnames({
-      [style.container]: hasHeader,
-      'bp-container': hasHeader
-    })
-
     const keyHandlers = {
       'emulator-focus': this.focusEmulator,
-      'docs-toggle': this.toggleDocs
+      'docs-toggle': this.toggleDocs,
+      'lang-switcher': this.toggleLangSwitcher
     }
 
     return (
@@ -103,11 +106,13 @@ class Layout extends React.Component {
           <SelectContentManager />
           <Dock isOpen={this.state.emulatorOpen} onToggle={this.toggleEmulator} />
           <StatusBar
-            botName={this.botName}
+            botName={this.botName || this.botId}
             onToggleEmulator={this.toggleEmulator}
             isEmulatorOpen={this.state.emulatorOpen}
             botpressVersion={this.botpressVersion}
             emitter={this.statusBarEmitter}
+            langSwitcherOpen={this.state.langSwitcherOpen}
+            toggleLangSwitcher={this.toggleLangSwitcher}
           />
         </div>
       </HotKeys>

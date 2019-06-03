@@ -9,7 +9,7 @@ import Joi from 'joi'
 import _ from 'lodash'
 
 import { CustomRouter } from './customRouter'
-import { NotFoundError } from './errors'
+import { BadRequestError, NotFoundError } from './errors'
 import { checkTokenHeader, success as sendSuccess, validateBodySchema } from './util'
 
 export class AuthRouter extends CustomRouter {
@@ -55,6 +55,9 @@ export class AuthRouter extends CustomRouter {
       res.status(403).send(`Registration is disabled`)
     } else {
       const { email, password } = req.body
+      if (email.length < 4 || password.length < 4) {
+        throw new BadRequestError('Email or password is too short.')
+      }
       const token = await this.authService.register(email, password, req.ip)
       return sendSuccess(res, 'Registration successful', { token })
     }
@@ -78,10 +81,13 @@ export class AuthRouter extends CustomRouter {
       throw new NotFoundError(`User ${tokenUser!.email || ''} not found`)
     }
 
+    const userRole = await this.workspaceService.getRoleForUser(user.email)
+
     const userProfile = {
       ...user,
       isSuperAdmin: tokenUser!.isSuperAdmin,
-      fullName: [user!.firstname, user!.lastname].filter(Boolean).join(' ')
+      fullName: [user!.firstname, user!.lastname].filter(Boolean).join(' '),
+      permissions: userRole && userRole.rules
     }
 
     return sendSuccess(res, 'Retrieved profile successfully', userProfile)

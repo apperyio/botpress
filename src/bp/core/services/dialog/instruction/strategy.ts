@@ -74,6 +74,7 @@ export class ActionStrategy implements InstructionStrategy {
     debug.forBot(botId, `[${event.target}] render element "${outputType}"`)
 
     const message: IO.DialogTurnHistory = {
+      eventId: event.id,
       incomingPreview: event.preview,
       replyConfidence: 1.0,
       replySource: 'dialogManager',
@@ -81,7 +82,11 @@ export class ActionStrategy implements InstructionStrategy {
       replyPreview: outputType
     }
 
-    event.state.session.lastMessages.push(message)
+    if (!event.state.session.lastMessages) {
+      event.state.session.lastMessages = [message]
+    } else {
+      event.state.session.lastMessages.push(message)
+    }
 
     args = {
       ...args,

@@ -3,7 +3,8 @@ import * as sdk from 'botpress/sdk'
 import _ from 'lodash'
 
 import choice from './choice'
-import setup from './setup'
+import apiCall from './callApi'
+import slot from './slot'
 
 export type Extension = {}
 
@@ -12,7 +13,11 @@ export type SDK = typeof sdk & Extension
 const onServerStarted = async (bp: SDK) => {}
 
 const onServerReady = async (bp: SDK) => {
-  await setup(bp)
+  await choice.setup(bp)
+}
+
+const onModuleUnmount = async (bp: typeof sdk) => {
+  bp.http.deleteRouterForBot('basic-skills')
 }
 
 const skillsToRegister: sdk.Skill[] = [
@@ -20,12 +25,23 @@ const skillsToRegister: sdk.Skill[] = [
     id: 'choice',
     name: 'Choice',
     flowGenerator: choice.generateFlow
+  },
+  {
+    id: 'CallAPI',
+    name: 'Call API',
+    flowGenerator: apiCall.generateFlow
+  },
+  {
+    id: 'Slot',
+    name: 'Slot',
+    flowGenerator: slot.generateFlow
   }
 ]
 
 const entryPoint: sdk.ModuleEntryPoint = {
   onServerStarted,
   onServerReady,
+  onModuleUnmount,
   definition: {
     name: 'basic-skills',
     menuIcon: 'fiber_smart_record',

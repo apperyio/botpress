@@ -36,7 +36,7 @@ function Versions() {
                   <a href={`/docs/installation`}>Documentation</a>
                 </td>
                 <td>
-                  <a href={`/docs/release-notes`}>Release Notes</a>
+                  <a href={`/docs/releases/release-notes`}>Release Notes</a>
                 </td>
               </tr>
             </tbody>
@@ -74,10 +74,17 @@ function Versions() {
                     </tr>
                   )
               )}
+            </tbody>
+          </table>
+
+          <h3 id="archive" style={{ color: '#FF0000' }}>
+            ⚠️ Deprecated Versions
+          </h3>
+
+          <table className="versions">
+            <tbody>
               <tr>
-                <th>
-                  Older versions: <b>10.x</b>
-                </th>
+                <th>10.50</th>
                 <td>
                   <a href={`/docs/10.50`}>Documentation</a>
                 </td>

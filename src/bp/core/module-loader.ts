@@ -1,4 +1,13 @@
-import { BotTemplate, Flow, Logger, ModuleDefinition, ModuleEntryPoint, Skill } from 'botpress/sdk'
+import {
+  BotTemplate,
+  ContentElement,
+  ElementChangedAction,
+  Flow,
+  Logger,
+  ModuleDefinition,
+  ModuleEntryPoint,
+  Skill
+} from 'botpress/sdk'
 import { ValidationError } from 'errors'
 
 import { inject, injectable, tagged } from 'inversify'
@@ -8,7 +17,9 @@ import _ from 'lodash'
 
 import { createForModule } from './api' // TODO
 
+import ModuleResolver from './modules/resolver'
 import { GhostService } from './services'
+import { BotService } from './services/bot-service'
 import ConfigReader from './services/module/config-reader'
 import { ModuleResourceLoader } from './services/module/resources-loader'
 import { TYPES } from './types'
@@ -18,7 +29,9 @@ const MODULE_SCHEMA = joi.object().keys({
   onServerReady: joi.func().required(),
   onBotMount: joi.func().optional(),
   onBotUnmount: joi.func().optional(),
+  onModuleUnmount: joi.func().optional(),
   onFlowChanged: joi.func().optional(),
+  onElementChanged: joi.func().optional(),
   skills: joi.array().optional(),
   botTemplates: joi.array().optional(),
   definition: joi.object().keys({
@@ -40,7 +53,8 @@ const MODULE_SCHEMA = joi.object().keys({
       }),
     menuIcon: joi.string().optional(),
     menuText: joi.string().optional(),
-    homepage: joi.string().optional()
+    homepage: joi.string().optional(),
+    experimental: joi.boolean().optional()
   })
 })
 
@@ -100,22 +114,76 @@ export class ModuleLoader {
 
     for (const module of modules) {
       const name = _.get(module, 'definition.name', '').toLowerCase()
-      try {
-        ModuleLoader.processModuleEntryPoint(module, name)
-        const api = await createForModule(name)
-        await (module.onServerStarted && module.onServerStarted(api))
-        initedModules[name] = true
-        this.entryPoints.set(name, module)
-
-        const resourceLoader = new ModuleResourceLoader(this.logger, name, this.ghost)
-        await resourceLoader.importResources()
-      } catch (err) {
-        this.logger.attachError(err).error(`Error in module "${name}" onServerStarted`)
-      }
+      initedModules[name] = await this._loadModule(module, name)
     }
 
     this.callModulesOnReady(modules, initedModules) // Floating promise here is on purpose, we are doing this in background
     return Object.keys(initedModules)
+  }
+
+  public async disableModuleResources(modules: string[]) {
+    for (const module of modules) {
+      const resourceLoader = new ModuleResourceLoader(this.logger, module, this.ghost)
+      await resourceLoader.disableResources()
+    }
+  }
+
+  public async reloadModule(moduleLocation: string, moduleName: string) {
+    const resolver = new ModuleResolver(this.logger)
+    const absoluteLocation = await resolver.resolve(moduleLocation)
+
+    await this._unloadModule(absoluteLocation, moduleName)
+
+    const entryPoint = resolver.requireModule(absoluteLocation)
+    const isModuleLoaded = await this._loadModule(entryPoint, moduleName)
+
+    // Module loaded successfully, we will process its regular lifecycle
+    if (isModuleLoaded) {
+      const api = await createForModule(moduleName)
+      await (entryPoint.onServerReady && entryPoint.onServerReady(api))
+
+      if (entryPoint.onBotMount) {
+        await Promise.mapSeries(BotService.getMountedBots(), x => entryPoint.onBotMount!(api, x))
+      }
+    }
+  }
+
+  private async _loadModule(module: ModuleEntryPoint, name: string) {
+    try {
+      ModuleLoader.processModuleEntryPoint(module, name)
+      const api = await createForModule(name)
+      await (module.onServerStarted && module.onServerStarted(api))
+
+      this.entryPoints.set(name, module)
+
+      const resourceLoader = new ModuleResourceLoader(this.logger, name, this.ghost)
+      await resourceLoader.enableResources()
+      await resourceLoader.runMigrations()
+      await resourceLoader.importResources()
+    } catch (err) {
+      this.logger.attachError(err).error(`Error in module "${name}" onServerStarted`)
+      return false
+    }
+
+    return true
+  }
+
+  private async _unloadModule(moduleLocation: string, moduleName: string) {
+    const loadedModule = this.entryPoints.get(moduleName)
+    if (!loadedModule) {
+      return
+    }
+
+    const api = await createForModule(moduleName)
+
+    if (loadedModule.onBotUnmount) {
+      await Promise.mapSeries(BotService.getMountedBots(), x => loadedModule.onBotUnmount!(api, x))
+    }
+
+    await (loadedModule.onModuleUnmount && loadedModule.onModuleUnmount(api))
+
+    this.entryPoints.delete(moduleName)
+    delete require.cache[require.resolve(moduleLocation)]
   }
 
   public async unloadModulesForBot(botId: string) {
@@ -133,6 +201,20 @@ export class ModuleLoader {
       const entryPoint = this.getModule(module.name)
       const api = await createForModule(module.name)
       await (entryPoint.onFlowChanged && entryPoint.onFlowChanged(api, botId, flow))
+    }
+  }
+
+  public async onElementChanged(
+    botId: string,
+    action: ElementChangedAction,
+    element: ContentElement,
+    oldElement?: ContentElement
+  ) {
+    const modules = this.getLoadedModules()
+    for (const module of modules) {
+      const entryPoint = this.getModule(module.name)
+      const api = await createForModule(module.name)
+      await (entryPoint.onElementChanged && entryPoint.onElementChanged(api, botId, action, element, oldElement))
     }
   }
 

@@ -1,7 +1,8 @@
-import { Logger, ListenHandle } from 'botpress/sdk'
+import { ListenHandle, Logger } from 'botpress/sdk'
 import { ObjectCache } from 'common/object-cache'
 import { isValidBotId } from 'common/validation'
 import { forceForwardSlashes } from 'core/misc/utils'
+import { EventEmitter2 } from 'eventemitter2'
 import fse from 'fs-extra'
 import { inject, injectable, tagged } from 'inversify'
 import _ from 'lodash'
@@ -11,15 +12,14 @@ import path from 'path'
 import tmp from 'tmp'
 import { VError } from 'verror'
 
+import { createArchive } from '../../misc/archive'
 import { TYPES } from '../../types'
 
 import { PendingRevisions, ServerWidePendingRevisions, StorageDriver } from '.'
 import DBStorageDriver from './db-driver'
 import DiskStorageDriver from './disk-driver'
-import { EventEmitter2 } from 'eventemitter2'
 
-const tar = require('tar')
-const MAX_GHOST_FILE_SIZE = 10 * 1024 * 1024 // 10 Mb
+const MAX_GHOST_FILE_SIZE = 20 * 1024 * 1024 // 20 Mb
 
 @injectable()
 export class GhostService {
@@ -98,19 +98,10 @@ export class GhostService {
         const outFiles = (await this.forBot(bid).exportToDirectory(p)).map(f => path.join(`bots/${bid}`, f))
         files.push(...outFiles)
       })
-      const outFile = path.join(tmpDir.name, 'archive.tgz')
 
-      await tar.create(
-        {
-          cwd: tmpDir.name,
-          file: outFile,
-          portable: true,
-          gzip: true
-        },
-        files
-      )
-
-      return await fse.readFile(outFile)
+      const filename = path.join(tmpDir.name, 'archive.tgz')
+      const archive = await createArchive(filename, tmpDir.name, files)
+      return await fse.readFile(archive)
     } finally {
       tmpDir.removeCallback()
     }
@@ -191,7 +182,7 @@ export class ScopedGhostService {
     const fileName = this.normalizeFileName(rootFolder, file)
 
     if (content.length > MAX_GHOST_FILE_SIZE) {
-      throw new Error(`The size of the file ${fileName} is over the 10mb limit`)
+      throw new Error(`The size of the file ${fileName} is over the 20mb limit`)
     }
 
     await this.primaryDriver.upsertFile(fileName, content, true)
@@ -253,8 +244,8 @@ export class ScopedGhostService {
     }
   }
 
-  public async exportToDirectory(directory: string): Promise<string[]> {
-    const allFiles = await this.directoryListing('./')
+  public async exportToDirectory(directory: string, exludes?: string | string[]): Promise<string[]> {
+    const allFiles = await this.directoryListing('./', '*.*', exludes)
 
     for (const file of allFiles.filter(x => x !== 'revisions.json')) {
       const content = await this.primaryDriver.readFile(this.normalizeFileName('./', file))
@@ -273,6 +264,33 @@ export class ScopedGhostService {
     }
 
     return allFiles
+  }
+
+  public async importFromDirectory(directory: string) {
+    const filenames = await this.diskDriver.absoluteDirectoryListing(directory)
+
+    const files = filenames.map(file => {
+      return {
+        name: file,
+        content: fse.readFileSync(path.join(directory, file))
+      } as FileContent
+    })
+
+    await this.upsertFiles('/', files)
+  }
+
+  public async exportToArchiveBuffer(exludes?: string | string[]): Promise<Buffer> {
+    const tmpDir = tmp.dirSync({ unsafeCleanup: true })
+
+    try {
+      const outFiles = await this.exportToDirectory(tmpDir.name, exludes)
+      const filename = path.join(tmpDir.name, 'archive.tgz')
+
+      const archive = await createArchive(filename, tmpDir.name, outFiles)
+      return await fse.readFile(archive)
+    } finally {
+      tmpDir.removeCallback()
+    }
   }
 
   public async isFullySynced(): Promise<boolean> {
@@ -340,6 +358,13 @@ export class ScopedGhostService {
     await this._invalidateFile(fileName)
   }
 
+  async renameFile(rootFolder: string, fromName: string, toName: string): Promise<void> {
+    const fromPath = this.normalizeFileName(rootFolder, fromName)
+    const toPath = this.normalizeFileName(rootFolder, toName)
+
+    await this.primaryDriver.moveFile(fromPath, toPath)
+  }
+
   async deleteFolder(folder: string): Promise<void> {
     if (this.isDirectoryGlob) {
       throw new Error(`Ghost can't read or write under this scope`)
@@ -352,12 +377,18 @@ export class ScopedGhostService {
   async directoryListing(
     rootFolder: string,
     fileEndingPattern: string = '*.*',
-    exludes?: string | string[]
+    excludes?: string | string[],
+    includeDotFiles?: boolean
   ): Promise<string[]> {
     try {
-      const files = await this.primaryDriver.directoryListing(this.normalizeFolderName(rootFolder), exludes)
+      const files = await this.primaryDriver.directoryListing(
+        this.normalizeFolderName(rootFolder),
+        excludes,
+        includeDotFiles
+      )
+
       return (files || []).filter(
-        minimatch.filter(fileEndingPattern, { matchBase: true, nocase: true, noglobstar: false })
+        minimatch.filter(fileEndingPattern, { matchBase: true, nocase: true, noglobstar: false, dot: includeDotFiles })
       )
     } catch (err) {
       if (err && err.message && err.message.includes('ENOENT')) {

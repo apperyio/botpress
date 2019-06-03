@@ -8,22 +8,35 @@
         "password": "695247d433b9df7e42ee2235f28ea0ea0b5088059e912b58e4ac03e6a3653827d1cba61a88022ac8c7ee3ea1bc9578b6056ad5681a0c6ff9761477e48561642c",
         "salt": "11e0ff4aea5b28f2",
         "last_ip": "::1",
-        "last_logon": "2019-03-01T12:22:47.195Z",
+        "last_logon": "2019-06-03T10:49:15.045Z",
         "role": "admin",
-        "created_on": "2019-03-01T12:18:37.150Z"
+        "created_on": "2019-03-01T12:18:37.150Z",
+        "unsuccessful_logins": 0,
+        "locked_out": false
       },
-	  {
+      {
         "email": "user.chatbot@appery.io",
         "password": "695247d433b9df7e42ee2235f28ea0ea0b5088059e912b58e4ac03e6a3653827d1cba61a88022ac8c7ee3ea1bc9578b6056ad5681a0c6ff9761477e48561642c",
         "salt": "11e0ff4aea5b28f2",
-        "last_ip": "::1",
-        "last_logon": "2019-03-01T12:22:47.195Z",
+        "last_ip": "::ffff:127.0.0.1",
+        "last_logon": "2019-06-03T13:13:34.274Z",
         "role": "admin",
-        "created_on": "2019-03-01T12:18:37.150Z"
+        "created_on": "2019-03-01T12:18:37.150Z",
+        "unsuccessful_logins": 0,
+        "locked_out": false
       }
-
     ],
-    "bots": [],
+    "bots": [
+      "emptychatbot",
+      "0edee540-9507-48f0-b322-68cef7a2ae97",
+      "9d820785-583f-4284-a588-4086b0b0ead5",
+      "70c08929-f7fc-4f81-99d2-b80825b69938",
+      "3cfa323d-d303-4f34-a76a-ca493dd90c8e",
+      "0c271b71-5d9b-44ad-b499-f5b00084bfee",
+      "a021aa2b-7b43-4dc3-b130-f1e59f2f019c",
+      "smalltalk",
+      "welcome"
+    ],
     "roles": [
       {
         "id": "admin",
@@ -67,11 +80,26 @@
           {
             "res": "admin.collaborators.*",
             "op": "-r"
+          },
+          {
+            "res": "bot.flows",
+            "op": "+r-w"
+          },
+          {
+            "res": "bot.content",
+            "op": "+r+w"
           }
         ]
       }
     ],
     "defaultRole": "dev",
-    "adminRole": "admin"
+    "adminRole": "admin",
+    "pipeline": [
+      {
+        "id": "prod",
+        "label": "Production",
+        "action": "promote_copy"
+      }
+    ]
   }
 ]
